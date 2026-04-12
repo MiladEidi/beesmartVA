@@ -1,0 +1,179 @@
+from __future__ import annotations
+
+from datetime import date
+from decimal import Decimal
+
+from sqlalchemy import select
+from telegram import Update
+from telegram.ext import ContextTypes
+
+from app.db import SessionLocal
+from app.enums import Role
+from app.models import User
+from app.services.auth import resolve_actor
+from app.services.hours import edit_hours, get_user, log_hours, logs_for_week, pending_timesheets, submit_hours
+from app.services.invoices import invoice_summary, mark_invoiced
+from app.services.permissions import has_manager_access
+from app.services.users import decrypt_hourly_rate
+from app.utils.dates import current_week_range, parse_date_maybe
+from app.utils.formatters import render_myweek, render_timesheet_table
+from app.utils.telegram import timesheet_supervisor_keyboard
+
+
+async def hours_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not context.args:
+        await update.message.reply_text('Use: /hours [date|today|yesterday] [hours] (note) or /hours edit ...')
+        return
+    if context.args[0].lower() == 'edit':
+        await _hours_edit(update, context)
+        return
+    if len(context.args) < 2:
+        await update.message.reply_text('Use: /hours [date|today|yesterday] [hours] (note)')
+        return
+    async with SessionLocal() as session:
+        actor = await resolve_actor(session, update)
+        if not actor or actor.role != Role.VA or actor.role_user_id is None:
+            await update.message.reply_text('Only VAs can log hours.')
+            return
+        user = await get_user(session, user_id=actor.role_user_id, client_id=actor.client_id)
+        work_date = parse_date_maybe(context.args[0], user.timezone)
+        hours = Decimal(context.args[1])
+        note = ' '.join(context.args[2:]).strip() or None
+        await log_hours(session, va_id=actor.role_user_id, client_id=actor.client_id, work_date=work_date, hours=hours, note=note)
+        await session.commit()
+        await update.message.reply_text(f'Logged {hours}h for {work_date.isoformat()}.')
+
+
+async def _hours_edit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async with SessionLocal() as session:
+        actor = await resolve_actor(session, update)
+        if not actor or actor.role_user_id is None:
+            await update.message.reply_text('You are not registered in this group.')
+            return
+        if actor.role == Role.VA:
+            if len(context.args) < 3:
+                await update.message.reply_text('Use: /hours edit [date] [hours] (note)')
+                return
+            user = await get_user(session, user_id=actor.role_user_id, client_id=actor.client_id)
+            work_date = parse_date_maybe(context.args[1], user.timezone)
+            hours = Decimal(context.args[2])
+            note = ' '.join(context.args[3:]).strip() or None
+            await edit_hours(session, va_id=actor.role_user_id, client_id=actor.client_id, work_date=work_date, hours=hours, note=note, actor_id=actor.role_user_id)
+            await session.commit()
+            await update.message.reply_text('Hour entry updated.')
+            return
+        if has_manager_access(actor.role):
+            if len(context.args) < 4:
+                await update.message.reply_text('Use: /hours edit [va_tg_id] [date] [hours] (note)')
+                return
+            va_tg_id = int(context.args[1])
+            va = await session.scalar(select(User).where(User.client_id == actor.client_id, User.telegram_user_id == va_tg_id, User.role == Role.VA))
+            if not va:
+                await update.message.reply_text('VA not found.')
+                return
+            work_date = parse_date_maybe(context.args[2], va.timezone)
+            hours = Decimal(context.args[3])
+            note = ' '.join(context.args[4:]).strip() or None
+            await edit_hours(session, va_id=va.id, client_id=actor.client_id, work_date=work_date, hours=hours, note=note, actor_id=actor.role_user_id)
+            await session.commit()
+            await context.bot.send_message(chat_id=va.telegram_user_id, text=f'Your manager adjusted your hours for {work_date.isoformat()}.')
+            await update.message.reply_text('Hour entry updated.')
+            return
+        await update.message.reply_text('Only VAs and managers can edit hour entries.')
+
+
+async def myweek_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async with SessionLocal() as session:
+        actor = await resolve_actor(session, update)
+        if not actor or actor.role != Role.VA or actor.role_user_id is None:
+            await update.message.reply_text('Only VAs can use /myweek.')
+            return
+        user = await get_user(session, user_id=actor.role_user_id, client_id=actor.client_id)
+        week_start, _ = current_week_range(user.timezone)
+        logs = await logs_for_week(session, va_id=actor.role_user_id, client_id=actor.client_id, week_start=week_start)
+        await update.message.reply_text(render_myweek(logs))
+
+
+async def submit_hours_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async with SessionLocal() as session:
+        actor = await resolve_actor(session, update)
+        if not actor or actor.role != Role.VA or actor.role_user_id is None:
+            await update.message.reply_text('Only VAs can submit timesheets.')
+            return
+        user = await get_user(session, user_id=actor.role_user_id, client_id=actor.client_id)
+        timesheet, logs = await submit_hours(session, va_id=actor.role_user_id, client_id=actor.client_id, actor_id=actor.role_user_id, today=date.today())
+        if not user.supervisor:
+            await session.rollback()
+            await update.message.reply_text('No supervisor is assigned to this VA yet.')
+            return
+        await session.commit()
+        rate = decrypt_hourly_rate(user)
+        text = render_timesheet_table(user.display_name, timesheet.week_start_date, logs, rate)
+        await context.bot.send_message(chat_id=user.supervisor.telegram_user_id, text='A timesheet is ready for your review.\n\n' + text, reply_markup=timesheet_supervisor_keyboard(timesheet.id))
+        await update.message.reply_text('Timesheet sent to your supervisor.')
+
+
+async def timesheets_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async with SessionLocal() as session:
+        actor = await resolve_actor(session, update)
+        if not actor or not has_manager_access(actor.role):
+            await update.message.reply_text('Only supervisors or business managers can use /timesheets.')
+            return
+        items = await pending_timesheets(session, client_id=actor.client_id)
+        if not items:
+            await update.message.reply_text('No pending timesheets.')
+            return
+        lines = [f'#{ts.id} · week={ts.week_start_date.isoformat()} · status={ts.status.value} · total={ts.total_hours}h' for ts in items]
+        await update.message.reply_text('\n'.join(lines))
+
+
+async def rate_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async with SessionLocal() as session:
+        actor = await resolve_actor(session, update)
+        if not actor or actor.role != Role.VA or actor.role_user_id is None:
+            await update.message.reply_text('Only VAs can use /rate.')
+            return
+        user = await get_user(session, user_id=actor.role_user_id, client_id=actor.client_id)
+        rate = decrypt_hourly_rate(user)
+        await update.message.reply_text(f'Your rate for this engagement: ${rate or 0}/hr')
+
+
+async def invoice_summary_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if len(context.args) < 2:
+        await update.message.reply_text('Use: /invoice summary [va_tg_id] [YYYY-MM-DD:YYYY-MM-DD]')
+        return
+    va_tg_id = int(context.args[0])
+    start_s, end_s = context.args[1].split(':', 1)
+    period_start = date.fromisoformat(start_s); period_end = date.fromisoformat(end_s)
+    async with SessionLocal() as session:
+        actor = await resolve_actor(session, update)
+        if not actor or not has_manager_access(actor.role):
+            await update.message.reply_text('Only supervisors or business managers can use invoice commands.')
+            return
+        va = await session.scalar(select(User).where(User.client_id == actor.client_id, User.telegram_user_id == va_tg_id, User.role == Role.VA))
+        if not va:
+            await update.message.reply_text('VA not found.')
+            return
+        text, _, _, _ = await invoice_summary(session, va=va, period_start=period_start, period_end=period_end)
+        await update.message.reply_text(text)
+
+
+async def invoice_sent_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if len(context.args) < 2:
+        await update.message.reply_text('Use: /invoice sent [va_tg_id] [YYYY-MM-DD:YYYY-MM-DD]')
+        return
+    va_tg_id = int(context.args[0])
+    start_s, end_s = context.args[1].split(':', 1)
+    period_start = date.fromisoformat(start_s); period_end = date.fromisoformat(end_s)
+    async with SessionLocal() as session:
+        actor = await resolve_actor(session, update)
+        if not actor or not has_manager_access(actor.role) or actor.role_user_id is None:
+            await update.message.reply_text('Only supervisors or business managers can use invoice commands.')
+            return
+        va = await session.scalar(select(User).where(User.client_id == actor.client_id, User.telegram_user_id == va_tg_id, User.role == Role.VA))
+        if not va:
+            await update.message.reply_text('VA not found.')
+            return
+        period = await mark_invoiced(session, va=va, period_start=period_start, period_end=period_end, actor_id=actor.role_user_id)
+        await session.commit()
+        await update.message.reply_text(f'Invoice period #{period.id} marked as invoiced.')

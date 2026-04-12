@@ -1,0 +1,65 @@
+from enum import Enum
+
+
+class Role(str, Enum):
+    VA = 'VA'
+    SUPERVISOR = 'SUPERVISOR'
+    CLIENT = 'CLIENT'
+    BUSINESS_MANAGER = 'BUSINESS_MANAGER'
+
+
+class TimesheetStatus(str, Enum):
+    DRAFT = 'DRAFT'
+    SUBMITTED = 'SUBMITTED'
+    SUP_REVIEWING = 'SUP_REVIEWING'
+    CLIENT_PENDING = 'CLIENT_PENDING'
+    APPROVED = 'APPROVED'
+    QUERIED = 'QUERIED'
+
+
+class TaskStatus(str, Enum):
+    OPEN = 'OPEN'
+    DONE = 'DONE'
+    FLAGGED = 'FLAGGED'
+
+
+class FlagReason(str, Enum):
+    SKILL = 'skill'
+    TIME = 'time'
+
+
+class ReminderType(str, Enum):
+    DAILY_TASK_NUDGE = 'DAILY_TASK_NUDGE'
+    FRIDAY_TIMESHEET_REMINDER = 'FRIDAY_TIMESHEET_REMINDER'
+    WEEKLY_REPORT = 'WEEKLY_REPORT'
+    MONTHLY_REPORT = 'MONTHLY_REPORT'
+    INVOICE_REMINDER = 'INVOICE_REMINDER'
+    DRAFT_REMINDER = 'DRAFT_REMINDER'
+    FOLLOWUP_REMINDER = 'FOLLOWUP_REMINDER'
+    SCORECHECK = 'SCORECHECK'
+
+
+class InvoiceStatus(str, Enum):
+    PENDING = 'PENDING'
+    INVOICED = 'INVOICED'
+
+
+class ConnectionStatus(str, Enum):
+    CONNECTED = 'CONNECTED'
+    FOLLOWED_UP = 'FOLLOWED_UP'
+    REPLIED = 'REPLIED'
+    BOOKED = 'BOOKED'
+    CLOSED = 'CLOSED'
+
+
+class DraftStatus(str, Enum):
+    PENDING = 'PENDING'
+    APPROVED = 'APPROVED'
+    REVISED = 'REVISED'
+    POSTED = 'POSTED'
+
+
+class ScoreTrigger(str, Enum):
+    MONTHLY = 'MONTHLY'
+    WEEKLY_ONBOARDING = 'WEEKLY_ONBOARDING'
+    MANUAL = 'MANUAL'
