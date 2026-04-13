@@ -62,6 +62,16 @@ async def get_user_by_internal_id(session: AsyncSession, *, client_id: int, user
     return await session.scalar(select(User).where(User.client_id == client_id, User.id == user_id, User.active.is_(True)))
 
 
+async def get_business_manager(session: AsyncSession, *, client_id: int) -> User | None:
+    return await session.scalar(
+        select(User).where(
+            User.client_id == client_id,
+            User.role == Role.BUSINESS_MANAGER,
+            User.active.is_(True),
+        )
+    )
+
+
 async def add_or_update_user(
     session: AsyncSession,
     *,
@@ -74,7 +84,15 @@ async def add_or_update_user(
     supervisor_id: int | None = None,
     hourly_rate: Decimal | None = None,
     va_start_date: date | None = None,
+    allow_business_manager_transfer: bool = False,
 ) -> User:
+    if role == Role.BUSINESS_MANAGER:
+        existing_bm = await get_business_manager(session, client_id=client_id)
+        if existing_bm and existing_bm.telegram_user_id != telegram_user_id:
+            if not allow_business_manager_transfer:
+                raise ValueError('A business manager already exists for this group.')
+            existing_bm.role = Role.SUPERVISOR
+
     user = await get_user_by_telegram_id(session, client_id=client_id, telegram_user_id=telegram_user_id)
     if user:
         user.display_name = display_name

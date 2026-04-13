@@ -6,6 +6,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
+from sqlalchemy import select
 
 TMP_DB = Path('/tmp/beesmart_test.sqlite3')
 os.environ['DATABASE_URL'] = f'sqlite+aiosqlite:///{TMP_DB}'
@@ -69,3 +70,37 @@ async def test_business_manager_can_complete_full_timesheet_approval():
         assert ts.status == TimesheetStatus.CLIENT_PENDING
         await approve_by_client(session, timesheet=ts, client_user_id=bm.id)
         assert ts.status == TimesheetStatus.APPROVED
+
+
+@pytest.mark.asyncio
+async def test_business_manager_role_is_unique_and_transfer_requires_current_manager():
+    if TMP_DB.exists():
+        TMP_DB.unlink()
+    await init_db()
+    async with SessionLocal() as session:
+        client = await ensure_client(session, chat_id=5001, name='Client B')
+        await add_or_update_user(session, client_id=client.id, telegram_user_id=6001, display_name='BM1', role=Role.BUSINESS_MANAGER)
+        await add_or_update_user(session, client_id=client.id, telegram_user_id=6002, display_name='User', role=Role.VA)
+
+        with pytest.raises(ValueError, match='business manager already exists'):
+            await add_or_update_user(
+                session,
+                client_id=client.id,
+                telegram_user_id=6003,
+                display_name='BM2',
+                role=Role.BUSINESS_MANAGER,
+            )
+
+        bm2 = await add_or_update_user(
+            session,
+            client_id=client.id,
+            telegram_user_id=6003,
+            display_name='BM2',
+            role=Role.BUSINESS_MANAGER,
+            allow_business_manager_transfer=True,
+        )
+        assert bm2.role == Role.BUSINESS_MANAGER
+        previous_bm = await session.scalar(
+            select(User).where(User.client_id == client.id, User.telegram_user_id == 6001)
+        )
+        assert previous_bm.role == Role.SUPERVISOR

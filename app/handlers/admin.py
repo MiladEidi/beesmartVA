@@ -31,10 +31,19 @@ async def setup_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     if len(parts) != 6:
         await update.message.reply_text(
-            "Use:\n"
+            "Setup requires 6 fields separated by |\n\n"
+            "Format:\n"
             "/setup | Client Name | Business Name | Timezone | Primary Service | Tagline | Description\n\n"
             "Example:\n"
-            "/setup | Jane Client | BeeSmartVA | Europe/Paris | Lead Gen | Smart support | Daily VA operations"
+            "/setup | Jane Smith | BeeSmartVA | Europe/Paris | Lead Generation | Smart VA support | Daily VA operations for Jane\n\n"
+            "Fields explained:\n"
+            "  Client Name     → the client's name (e.g. Jane Smith)\n"
+            "  Business Name   → your VA business name (e.g. BeeSmartVA)\n"
+            "  Timezone        → IANA timezone (e.g. Europe/Paris, Asia/Manila, America/New_York)\n"
+            "  Primary Service → what you do (e.g. Lead Generation, Admin Support)\n"
+            "  Tagline         → short slogan (e.g. Smart VA support)\n"
+            "  Description     → one-line summary of the engagement\n\n"
+            "For the full setup guide: /guide setup"
         )
         return
 
@@ -51,7 +60,12 @@ async def setup_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     async with SessionLocal() as session:
         existing = await get_client_by_chat_id(session, update.effective_chat.id)
         if existing:
-            await update.message.reply_text('This group is already set up.')
+            await update.message.reply_text(
+                'This group is already set up.\n\n'
+                'To manage users: /adduser or /menu → Add user\n'
+                'To view the group: /groups\n'
+                'For setup help: /guide setup'
+            )
             return
         client = await ensure_client(
             session,
@@ -74,20 +88,47 @@ async def setup_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await session.commit()
 
     await update.message.reply_text(
-        "Setup complete. You are registered as the business manager for this group."
+        f"Workspace created!\n\n"
+        f"  Client:   {client_name}\n"
+        f"  Business: {business_name}\n"
+        f"  Timezone: {timezone_name}\n\n"
+        "You are registered as Business Manager.\n\n"
+        "Next steps:\n"
+        "  1. Add your team: /adduser [tg_id] VA [Name]\n"
+        "  2. Add a supervisor: /adduser [tg_id] SUPERVISOR [Name]\n"
+        "  3. Add the client: /adduser [tg_id] CLIENT [Name]\n"
+        "  4. Assign supervisors: /set supervisor [va_id] [sup_id]\n"
+        "  5. Set VA rates: /set rate [va_id] [amount]\n\n"
+        "Full setup guide: /guide setup\n"
+        "Guided menu: /menu"
     )
 
 
 async def adduser_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if len(context.args) < 3:
-        await update.message.reply_text("Use: /adduser [tg_id] [VA|SUPERVISOR|CLIENT|BUSINESS_MANAGER] [display_name]")
+        await update.message.reply_text(
+            "Use: /adduser [tg_id] [ROLE] [display_name]\n\n"
+            "Roles: VA | SUPERVISOR | CLIENT | BUSINESS_MANAGER\n\n"
+            "Examples:\n"
+            "  /adduser 123456789 VA Sarah Jones\n"
+            "  /adduser 987654321 SUPERVISOR Mike Smith\n"
+            "  /adduser 112233445 CLIENT Jane Brown\n\n"
+            "How to find a Telegram ID:\n"
+            "  Ask the user to message @userinfobot — it replies with their ID.\n\n"
+            "Or use the guided flow: /menu → Add user\n"
+            "Full guide: /guide setup"
+        )
         return
 
     try:
         tg_id = int(context.args[0])
         role = Role(context.args[1].upper())
     except Exception:
-        await update.message.reply_text("Use: /adduser [tg_id] [VA|SUPERVISOR|CLIENT|BUSINESS_MANAGER] [display_name]")
+        await update.message.reply_text(
+            "Invalid format.\n\n"
+            "Use: /adduser [tg_id] [VA|SUPERVISOR|CLIENT|BUSINESS_MANAGER] [display_name]\n"
+            "Example: /adduser 123456789 VA Sarah Jones"
+        )
         return
 
     display_name = " ".join(context.args[2:]).strip()
@@ -98,18 +139,38 @@ async def adduser_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await update.message.reply_text("Only supervisors or business managers can add users.")
             return
 
-        await add_or_update_user(
-            session,
-            client_id=actor.client_id,
-            telegram_user_id=tg_id,
-            display_name=display_name,
-            role=role,
-            timezone="UTC",
-            va_start_date=date.today() if role == Role.VA else None,
-        )
+        if role == Role.BUSINESS_MANAGER and actor.role != Role.BUSINESS_MANAGER:
+            await update.message.reply_text(
+                "Only the current business manager can assign or change the business manager."
+            )
+            return
+
+        try:
+            await add_or_update_user(
+                session,
+                client_id=actor.client_id,
+                telegram_user_id=tg_id,
+                display_name=display_name,
+                role=role,
+                timezone="UTC",
+                va_start_date=date.today() if role == Role.VA else None,
+                allow_business_manager_transfer=(role == Role.BUSINESS_MANAGER and actor.role == Role.BUSINESS_MANAGER),
+            )
+        except ValueError as exc:
+            await update.message.reply_text(str(exc))
+            return
         await session.commit()
 
-    await update.message.reply_text(f"{display_name} registered as {role.value}.")
+    await update.message.reply_text(
+        f"User added!\n\n"
+        f"  Name: {display_name}\n"
+        f"  Role: {role.value}\n\n"
+        + ("Next: /set supervisor [va_id] [sup_id] to assign their supervisor\n"
+           "      /set rate [va_id] [amount] to set their hourly rate\n\n"
+           if role == Role.VA else
+           "Ask them to type /start in the group.\n\n")
+        + "Full guide: /guide setup"
+    )
 
 
 async def groups_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -135,7 +196,13 @@ async def groups_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 async def set_supervisor_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if len(context.args) < 2:
-        await update.message.reply_text("Use: /set supervisor [va_user_id] [supervisor_user_id]")
+        await update.message.reply_text(
+            "Use: /set supervisor [va_user_id] [supervisor_user_id]\n\n"
+            "Both IDs are internal user IDs (shown in /groups).\n"
+            "Example: /set supervisor 3 7\n\n"
+            "Or use the guided flow: /menu → Set supervisor\n"
+            "Full guide: /guide setup"
+        )
         return
 
     try:
@@ -171,7 +238,15 @@ async def set_supervisor_command(update: Update, context: ContextTypes.DEFAULT_T
 
 async def set_rate_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if len(context.args) < 2:
-        await update.message.reply_text("Use: /set rate [va_user_id] [amount]  or /set rate tg:[va_tg_id] [amount]")
+        await update.message.reply_text(
+            "Use: /set rate [va_user_id] [amount]\n"
+            "  or /set rate tg:[va_telegram_id] [amount]\n\n"
+            "Examples:\n"
+            "  /set rate 3 15.50       (internal user ID from /groups)\n"
+            "  /set rate tg:123456789 12  (Telegram user ID)\n\n"
+            "Or use the guided flow: /menu → Set rate\n"
+            "Full invoicing guide: /guide invoicing"
+        )
         return
 
     target = context.args[0]
@@ -264,7 +339,13 @@ async def set_timezone_command(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def set_va_hours_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text('Feature retained from original project. Configure it where needed.')
+    await update.message.reply_text(
+        'VA working hours are stored per user.\n\n'
+        'To update a user\'s details, use:\n'
+        '  /update working_hours [value]\n\n'
+        'To see current user configuration: /groups\n'
+        'For setup help: /guide setup'
+    )
 
 
 async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

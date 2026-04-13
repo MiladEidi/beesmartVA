@@ -21,7 +21,7 @@ from app.handlers.admin import (
 )
 from app.handlers.callbacks import draft_callback, score_callback, timesheet_callback
 from app.handlers.checkins import ask_command, confirm_command, flag_command, notify_client_command, stats_command
-from app.handlers.common import contacts_command, credentials_command, guide_command, help_command, links_command, prefs_command, profile_command, schedule_command, start_command
+from app.handlers.common import contacts_command, credentials_command, guide_command, help_command, howto_command, links_command, prefs_command, profile_command, schedule_command, start_command
 from app.handlers.ui import flow_message_handler, menu_command, ui_callback
 from app.handlers.drafts import draft_command, drafts_command, posted_command
 from app.handlers.followups import booked_command, connection_command, followdone_command, followups_command, noresponse_command, replied_command
@@ -46,7 +46,7 @@ def build_application() -> Application:
     application = Application.builder().token(settings.bot_token).post_init(post_init).build()
 
     for name, fn in [
-        ('start', start_command), ('help', help_command), ('guide', guide_command), ('menu', menu_command),
+        ('start', start_command), ('help', help_command), ('guide', guide_command), ('howto', howto_command), ('menu', menu_command),
         ('profile', profile_command), ('links', links_command), ('contacts', contacts_command),
         ('prefs', prefs_command), ('schedule', schedule_command), ('credentials', credentials_command),
         ('setup', setup_command), ('adduser', adduser_command), ('groups', groups_command), ('update', update_command), ('auditlog', auditlog_command),

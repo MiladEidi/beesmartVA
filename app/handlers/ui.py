@@ -22,26 +22,27 @@ FLOW_KEY = 'guided_flow'
 
 
 def _menu_keyboard(role: Role | None) -> InlineKeyboardMarkup:
-    rows = [[InlineKeyboardButton('Profile', callback_data='ui:profile')]]
+    rows = [[InlineKeyboardButton('👤 Profile', callback_data='ui:profile'), InlineKeyboardButton('❓ Help & Guide', callback_data='ui:helpguide')]]
     if role == Role.VA:
         rows += [
-            [InlineKeyboardButton('Log hours', callback_data='ui:hours:start'), InlineKeyboardButton('Create task', callback_data='ui:task:start')],
-            [InlineKeyboardButton('Submit draft', callback_data='ui:draft:start')],
-            [InlineKeyboardButton('My tasks', callback_data='ui:mytasks:view'), InlineKeyboardButton('Log connection', callback_data='ui:connection:start')],
-            [InlineKeyboardButton('Quick actions', callback_data='ui:quickactions:start')],
+            [InlineKeyboardButton('⏱ Log hours', callback_data='ui:hours:start'), InlineKeyboardButton('✅ Create task', callback_data='ui:task:start')],
+            [InlineKeyboardButton('📝 Submit draft', callback_data='ui:draft:start')],
+            [InlineKeyboardButton('📋 My tasks', callback_data='ui:mytasks:view'), InlineKeyboardButton('🔗 Log connection', callback_data='ui:connection:start')],
+            [InlineKeyboardButton('📤 Submit timesheet', callback_data='ui:submittimesheet')],
+            [InlineKeyboardButton('⚡ Quick actions', callback_data='ui:quickactions:start')],
         ]
     if role in {Role.SUPERVISOR, Role.BUSINESS_MANAGER}:
         rows += [
-            [InlineKeyboardButton('Add user', callback_data='ui:adduser:start')],
-            [InlineKeyboardButton('Set supervisor', callback_data='ui:setsupervisor:start')],
-            [InlineKeyboardButton('Set rate', callback_data='ui:setrate:start')],
+            [InlineKeyboardButton('➕ Add user', callback_data='ui:adduser:start')],
+            [InlineKeyboardButton('👥 Set supervisor', callback_data='ui:setsupervisor:start')],
+            [InlineKeyboardButton('💰 Set rate', callback_data='ui:setrate:start')],
         ]
         if role == Role.SUPERVISOR:
-            rows += [[InlineKeyboardButton('Pending tasks', callback_data='ui:teamtasks:view')]]
-        rows += [[InlineKeyboardButton('Executive report', callback_data='ui:report:all')]]
+            rows += [[InlineKeyboardButton('📋 Pending tasks', callback_data='ui:teamtasks:view')]]
+        rows += [[InlineKeyboardButton('📊 Executive report', callback_data='ui:report:all')]]
     if role in {Role.CLIENT, Role.BUSINESS_MANAGER}:
-        rows += [[InlineKeyboardButton('Reports', callback_data='ui:reports')]]
-    rows += [[InlineKeyboardButton('Cancel', callback_data='ui:cancel')]]
+        rows += [[InlineKeyboardButton('📈 Reports', callback_data='ui:reports')]]
+    rows += [[InlineKeyboardButton('✖ Cancel', callback_data='ui:cancel')]]
     return InlineKeyboardMarkup(rows)
 
 
@@ -64,7 +65,18 @@ async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     async with SessionLocal() as session:
         actor = await resolve_actor(session, update)
         role = actor.role if actor else None
-    await update.message.reply_text('Choose an action:', reply_markup=_menu_keyboard(role))
+    if role is None:
+        await update.message.reply_text(
+            'This group is not set up yet.\n\n'
+            'Run /guide setup for step-by-step setup instructions.',
+            reply_markup=_menu_keyboard(role),
+        )
+        return
+    await update.message.reply_text(
+        f'Hi {actor.display_name if actor else ""}! Choose an action below.\n'
+        'Tap "Help & Guide" for step-by-step instructions on any feature.',
+        reply_markup=_menu_keyboard(role),
+    )
 
 
 async def ui_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -82,17 +94,67 @@ async def ui_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await query.edit_message_text('This group has not been set up yet.')
             return
         if action == 'profile':
-            await query.edit_message_text(f'You are {actor.display_name} ({actor.role.value if actor.role else "UNREGISTERED"}) in client #{actor.client_id}.')
+            await query.edit_message_text(
+                f'Name: {actor.display_name}\n'
+                f'Role: {actor.role.value if actor.role else "UNREGISTERED"}\n'
+                f'Client ID: #{actor.client_id}\n\n'
+                'Use /help for your role guide or /guide [topic] for specific help.'
+            )
+            return
+        if action == 'helpguide':
+            lines = [
+                'Help & Guide\n',
+                'Use /guide [topic] for step-by-step instructions:\n',
+                '  /guide hours        → logging and editing hours',
+                '  /guide timesheets   → submitting and approvals',
+                '  /guide tasks        → creating, completing, flagging',
+                '  /guide drafts       → submitting content for review',
+                '  /guide connections  → follow-up tracking',
+                '  /guide setup        → workspace setup',
+                '  /guide invoicing    → generating invoice periods',
+                '  /guide reports      → reports and auto-schedule',
+                '',
+                'Or type /help for your role quick reference.',
+            ]
+            await query.edit_message_text('\n'.join(lines))
+            return
+        if action == 'submittimesheet':
+            if not actor or actor.role != Role.VA or actor.role_user_id is None:
+                await query.edit_message_text(
+                    'Only VAs can submit timesheets.\n\n'
+                    'If you are a VA but seeing this error, contact your Business Manager.'
+                )
+                return
+            await query.edit_message_text(
+                'To submit your timesheet:\n\n'
+                '1. Check your logged hours first: /myweek\n'
+                '2. When all hours are logged, run: /submit hours\n\n'
+                'The bot will send your timesheet to your supervisor automatically.\n\n'
+                'For the full timesheet guide: /guide timesheets'
+            )
             return
         if action == 'reports':
-            await query.edit_message_text('Use /weekly or /monthly to get the latest summaries.')
+            await query.edit_message_text(
+                'Reports available to you:\n\n'
+                '  /weekly   → this week\'s summary\n'
+                '  /monthly  → monthly overview\n'
+                '  /scores   → satisfaction score history\n\n'
+                'For the full reports guide: /guide reports'
+            )
             return
         if action == 'report' and len(parts) > 2 and parts[2] == 'all':
-            await query.edit_message_text('Use /report all and the report will be sent to your private chat.')
+            await query.edit_message_text(
+                'Run /report all to get the executive summary in your private chat.\n\n'
+                'Business Managers will also see financial totals.\n'
+                'For the full reports guide: /guide reports'
+            )
             return
         if action == 'hours':
             if actor.role != Role.VA or actor.role_user_id is None:
-                await query.edit_message_text('Only VAs can log hours.')
+                await query.edit_message_text(
+                    'Only VAs can log hours.\n\n'
+                    'If you are a VA, make sure your Business Manager has added you with /adduser.'
+                )
                 return
             sub = parts[2]
             if sub == 'start':
@@ -101,7 +163,11 @@ async def ui_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                     [InlineKeyboardButton('Today', callback_data='ui:hoursdate:today'), InlineKeyboardButton('Yesterday', callback_data='ui:hoursdate:yesterday')],
                     [InlineKeyboardButton('Cancel', callback_data='ui:cancel')],
                 ])
-                await query.edit_message_text('Choose the work date.', reply_markup=kb)
+                await query.edit_message_text(
+                    'Step 1 of 3 — Log Hours\n\n'
+                    'Which day are you logging hours for?',
+                    reply_markup=kb,
+                )
                 return
         if action == 'hoursdate':
             flow = context.user_data.get(FLOW_KEY)
@@ -112,10 +178,14 @@ async def ui_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             kb = InlineKeyboardMarkup([
                 [InlineKeyboardButton('0.5h', callback_data='ui:hourqty:0.5'), InlineKeyboardButton('1h', callback_data='ui:hourqty:1')],
                 [InlineKeyboardButton('2h', callback_data='ui:hourqty:2'), InlineKeyboardButton('4h', callback_data='ui:hourqty:4')],
-                [InlineKeyboardButton('8h', callback_data='ui:hourqty:8')],
+                [InlineKeyboardButton('6h', callback_data='ui:hourqty:6'), InlineKeyboardButton('8h', callback_data='ui:hourqty:8')],
                 [InlineKeyboardButton('Cancel', callback_data='ui:cancel')],
             ])
-            await query.edit_message_text('Choose the number of hours.', reply_markup=kb)
+            await query.edit_message_text(
+                'Step 2 of 3 — Log Hours\n\n'
+                'How many hours did you work?',
+                reply_markup=kb,
+            )
             return
         if action == 'hourqty':
             flow = context.user_data.get(FLOW_KEY)
@@ -124,20 +194,36 @@ async def ui_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 return
             flow['hours'] = parts[2]
             flow['awaiting'] = 'hours_note'
-            await query.edit_message_text('Send one short note for this work entry. Example: LinkedIn outreach')
+            await query.edit_message_text(
+                f'Step 3 of 3 — Log Hours\n\n'
+                f'Hours selected: {parts[2]}h\n\n'
+                'Send a short note describing what you worked on.\n'
+                'Example: LinkedIn outreach and email replies'
+            )
             return
         if action == 'task':
             if actor.role_user_id is None:
-                await query.edit_message_text('You are not registered in this group.')
+                await query.edit_message_text(
+                    'You are not registered in this group.\n\n'
+                    'Ask your Business Manager to add you with /adduser.'
+                )
                 return
             sub = parts[2]
             if sub == 'start':
                 context.user_data[FLOW_KEY] = {'type': 'task', 'assigned_to': actor.role_user_id}
-                await query.edit_message_text('Send the task description as one message.')
+                await query.edit_message_text(
+                    'Create Task\n\n'
+                    'Send the task description in one message.\n\n'
+                    'Be specific so it\'s easy to track.\n'
+                    'Example: Research top 10 LinkedIn hashtags for Q2 campaign'
+                )
                 return
         if action == 'draft':
             if actor.role != Role.VA or actor.role_user_id is None:
-                await query.edit_message_text('Only VAs can submit drafts.')
+                await query.edit_message_text(
+                    'Only VAs can submit drafts.\n\n'
+                    'For the full draft guide: /guide drafts'
+                )
                 return
             sub = parts[2]
             if sub == 'start':
@@ -147,7 +233,12 @@ async def ui_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                     [InlineKeyboardButton('Instagram', callback_data='ui:draftplatform:instagram'), InlineKeyboardButton('Other', callback_data='ui:draftplatform:other')],
                     [InlineKeyboardButton('Cancel', callback_data='ui:cancel')],
                 ])
-                await query.edit_message_text('Choose the platform.', reply_markup=kb)
+                await query.edit_message_text(
+                    'Step 1 of 2 — Submit Draft\n\n'
+                    'Which platform is this content for?\n\n'
+                    'After picking the platform, you\'ll send the full content.',
+                    reply_markup=kb,
+                )
                 return
         if action == 'draftplatform':
             flow = context.user_data.get(FLOW_KEY)
@@ -156,19 +247,36 @@ async def ui_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 return
             flow['platform'] = parts[2]
             flow['awaiting'] = 'draft_content'
-            await query.edit_message_text('Send the draft content in one message.')
+            await query.edit_message_text(
+                f'Step 2 of 2 — Submit Draft ({parts[2].capitalize()})\n\n'
+                'Send the full draft content in one message.\n\n'
+                'Your supervisor will receive it for review. '
+                'For the review process: /guide drafts'
+            )
             return
         if action == 'adduser':
             if not has_manager_access(actor.role):
-                await query.edit_message_text('Only supervisors or business managers can add users.')
+                await query.edit_message_text(
+                    'Only supervisors or business managers can add users.\n\n'
+                    'For setup help: /guide setup'
+                )
                 return
             context.user_data[FLOW_KEY] = {'type': 'adduser', 'awaiting': 'adduser_tg'}
             kb = InlineKeyboardMarkup([
-                [InlineKeyboardButton('Add VA', callback_data='ui:adduserrole:VA'), InlineKeyboardButton('Add Supervisor', callback_data='ui:adduserrole:SUPERVISOR')],
-                [InlineKeyboardButton('Add Client', callback_data='ui:adduserrole:CLIENT'), InlineKeyboardButton('Add Business Manager', callback_data='ui:adduserrole:BUSINESS_MANAGER')],
+                [InlineKeyboardButton('VA', callback_data='ui:adduserrole:VA'), InlineKeyboardButton('Supervisor', callback_data='ui:adduserrole:SUPERVISOR')],
+                [InlineKeyboardButton('Client', callback_data='ui:adduserrole:CLIENT'), InlineKeyboardButton('Business Manager', callback_data='ui:adduserrole:BUSINESS_MANAGER')],
                 [InlineKeyboardButton('Cancel', callback_data='ui:cancel')],
             ])
-            await query.edit_message_text('Choose the role for the new user.', reply_markup=kb)
+            await query.edit_message_text(
+                'Step 1 of 3 — Add User\n\n'
+                'Choose the role for the new user:\n\n'
+                '  VA             → logs hours, tasks, drafts\n'
+                '  Supervisor     → reviews timesheets and drafts\n'
+                '  Client         → final approval for timesheets\n'
+                '  Business Mgr   → full access\n\n'
+                'Tip: Get a user\'s Telegram ID by asking them to message @userinfobot',
+                reply_markup=kb,
+            )
             return
         if action == 'adduserrole':
             flow = context.user_data.get(FLOW_KEY)
@@ -177,7 +285,11 @@ async def ui_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 return
             flow['role'] = parts[2]
             flow['awaiting'] = 'adduser_tg'
-            await query.edit_message_text('Send the Telegram user ID of the new user.')
+            await query.edit_message_text(
+                f'Step 2 of 3 — Add User ({parts[2]})\n\n'
+                'Send the Telegram user ID of the new user.\n\n'
+                'How to find it: Ask them to message @userinfobot on Telegram — it replies with their numeric ID.'
+            )
             return
         if action == 'setsupervisor':
             if not has_manager_access(actor.role):
@@ -283,7 +395,10 @@ async def ui_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             return
         if action == 'connection':
             if not actor or actor.role != Role.VA or actor.role_user_id is None:
-                await query.edit_message_text('Only VAs can log connections.')
+                await query.edit_message_text(
+                    'Only VAs can log connections.\n\n'
+                    'For the full follow-up guide: /guide connections'
+                )
                 return
             sub = parts[2]
             if sub == 'start':
@@ -293,7 +408,12 @@ async def ui_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                     [InlineKeyboardButton('Phone', callback_data='ui:connplatform:Phone'), InlineKeyboardButton('Other', callback_data='ui:connplatform:Other')],
                     [InlineKeyboardButton('Cancel', callback_data='ui:cancel')],
                 ])
-                await query.edit_message_text('Choose platform for connection:', reply_markup=kb)
+                await query.edit_message_text(
+                    'Step 1 of 2 — Log Connection\n\n'
+                    'Where did you connect with this prospect?\n\n'
+                    'A follow-up reminder will be scheduled in 3 days automatically.',
+                    reply_markup=kb,
+                )
                 return
         if action == 'connplatform':
             flow = context.user_data.get(FLOW_KEY)
@@ -302,7 +422,12 @@ async def ui_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 return
             flow['platform'] = parts[2]
             flow['awaiting'] = 'conn_name'
-            await query.edit_message_text('Send the prospect name (first name is enough).')
+            await query.edit_message_text(
+                f'Step 2 of 2 — Log Connection ({parts[2]})\n\n'
+                'Send the prospect\'s name.\n\n'
+                'Example: Sarah Jones\n\n'
+                'First name is fine. The bot will remind you to follow up in 3 days.'
+            )
             return
         if action == 'quickactions':
             if not actor or actor.role != Role.VA:
@@ -314,22 +439,45 @@ async def ui_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 [InlineKeyboardButton('🖐️ Need Confirmation', callback_data='ui:quickconfirm:start')],
                 [InlineKeyboardButton('Back to menu', callback_data='ui:cancel')],
             ]
-            await query.edit_message_text('Quick actions:', reply_markup=InlineKeyboardMarkup(rows))
+            await query.edit_message_text(
+                'Quick Actions\n\n'
+                'Send a message directly to your supervisor:\n\n'
+                '  ❓ Ask — send a question\n'
+                '  🚩 Flag — alert about a problem or blocker\n'
+                '  🖐️ Confirm — request a yes/no decision\n\n'
+                'Your supervisor receives your message privately.',
+                reply_markup=InlineKeyboardMarkup(rows),
+            )
             return
         if action == 'quickask':
             context.user_data[FLOW_KEY] = {'type': 'quickask'}
             context.user_data[FLOW_KEY]['awaiting'] = 'quickask_msg'
-            await query.edit_message_text('Send your question to your supervisor (one message).')
+            await query.edit_message_text(
+                '❓ Ask Supervisor\n\n'
+                'Type your question and send it.\n\n'
+                'Your supervisor will receive it as a private message.\n'
+                'Example: Should I prioritise the LinkedIn content or the email campaign today?'
+            )
             return
         if action == 'quickflag':
             context.user_data[FLOW_KEY] = {'type': 'quickflag'}
             context.user_data[FLOW_KEY]['awaiting'] = 'quickflag_msg'
-            await query.edit_message_text('Send a note about the issue (one message).')
+            await query.edit_message_text(
+                '🚩 Flag Issue\n\n'
+                'Describe the issue or blocker you\'re facing.\n\n'
+                'Your supervisor will receive it as a private message.\n'
+                'Example: I don\'t have access to the LinkedIn account — can\'t post today.'
+            )
             return
         if action == 'quickconfirm':
             context.user_data[FLOW_KEY] = {'type': 'quickconfirm'}
             context.user_data[FLOW_KEY]['awaiting'] = 'quickconfirm_msg'
-            await query.edit_message_text('Send your confirmation question (one message).')
+            await query.edit_message_text(
+                '🖐️ Need Confirmation\n\n'
+                'Send your yes/no question to your supervisor.\n\n'
+                'Your supervisor will receive it as a private message.\n'
+                'Example: Should I send the proposal email today or wait until Thursday?'
+            )
             return
         if action == 'teamtasks':
             if not actor or not has_manager_access(actor.role):
@@ -393,19 +541,39 @@ async def flow_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             await log_hours(session, va_id=actor.role_user_id, client_id=actor.client_id, work_date=work_date, hours=Decimal(flow['hours']), note=text)
             await session.commit()
             context.user_data.pop(FLOW_KEY, None)
-            await update.message.reply_text(f'Logged {flow["hours"]}h for {work_date.isoformat()} with note: {text}')
+            await update.message.reply_text(
+                f'Hours logged!\n\n'
+                f'  Date:  {work_date.isoformat()}\n'
+                f'  Hours: {flow["hours"]}h\n'
+                f'  Note:  {text}\n\n'
+                'Check your week: /myweek\n'
+                'Submit timesheet: /submit hours'
+            )
             return
         if flow.get('type') == 'task' and actor.role_user_id is not None:
             task = await create_task(session, client_id=actor.client_id, created_by=actor.role_user_id, description=text, assigned_to=flow.get('assigned_to'))
             await session.commit()
             context.user_data.pop(FLOW_KEY, None)
-            await update.message.reply_text(f'Task #{task.id} created.')
+            await update.message.reply_text(
+                f'Task #{task.id} created!\n\n'
+                f'{text}\n\n'
+                'View your tasks: /tasks\n'
+                'Mark done when complete: /done ' + str(task.id)
+            )
             return
         if flow.get('type') == 'draft' and flow.get('awaiting') == 'draft_content' and actor.role_user_id is not None:
             draft = await submit_draft(session, client_id=actor.client_id, va_id=actor.role_user_id, platform=flow['platform'], content=text)
             await session.commit()
             context.user_data.pop(FLOW_KEY, None)
-            await update.message.reply_text(f'Draft {draft.draft_code} submitted for review.')
+            await update.message.reply_text(
+                f'Draft submitted!\n\n'
+                f'  Code:     {draft.draft_code}\n'
+                f'  Platform: {flow["platform"].capitalize()}\n'
+                f'  Status:   Pending review\n\n'
+                'Your supervisor will receive it for review.\n'
+                'Check status: /drafts\n'
+                'For the review flow: /guide drafts'
+            )
             return
         if flow.get('type') == 'adduser':
             if not has_manager_access(actor.role):
@@ -415,23 +583,67 @@ async def flow_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                 try:
                     flow['telegram_user_id'] = int(text)
                 except ValueError:
-                    await update.message.reply_text('Telegram user ID must be numeric.')
+                    await update.message.reply_text(
+                        'Telegram user ID must be a number.\n\n'
+                        'How to find it: Ask the user to message @userinfobot — it shows their numeric ID.'
+                    )
                     return
                 flow['awaiting'] = 'adduser_name'
-                await update.message.reply_text('Now send the display name for this user.')
+                await update.message.reply_text(
+                    f'Step 3 of 3 — Add User\n\n'
+                    f'Telegram ID: {flow["telegram_user_id"]}\n\n'
+                    'Now send the display name for this user.\n'
+                    'Example: Sarah Jones'
+                )
                 return
             if flow.get('awaiting') == 'adduser_name':
                 role = Role(flow['role'])
-                user = await add_or_update_user(session, client_id=actor.client_id, telegram_user_id=flow['telegram_user_id'], display_name=text, role=role)
+                if role == Role.BUSINESS_MANAGER and actor.role != Role.BUSINESS_MANAGER:
+                    context.user_data.pop(FLOW_KEY, None)
+                    await update.message.reply_text(
+                        'Only the current Business Manager can assign or change the Business Manager role.'
+                    )
+                    return
+                try:
+                    user = await add_or_update_user(
+                        session,
+                        client_id=actor.client_id,
+                        telegram_user_id=flow['telegram_user_id'],
+                        display_name=text,
+                        role=role,
+                        allow_business_manager_transfer=(role == Role.BUSINESS_MANAGER and actor.role == Role.BUSINESS_MANAGER),
+                    )
+                except ValueError as exc:
+                    context.user_data.pop(FLOW_KEY, None)
+                    await update.message.reply_text(str(exc))
+                    return
                 await session.commit()
                 context.user_data.pop(FLOW_KEY, None)
-                await update.message.reply_text(f'{user.display_name} registered as {user.role.value}. Internal user id: #{user.id}')
+                await update.message.reply_text(
+                    f'User added!\n\n'
+                    f'  Name:     {user.display_name}\n'
+                    f'  Role:     {user.role.value}\n'
+                    f'  User ID:  #{user.id}\n\n'
+                    'Next steps:\n'
+                    + ('  /set supervisor [va_id] [sup_id] → assign their supervisor\n'
+                       '  /set rate [va_id] [amount] → set hourly rate\n'
+                       if user.role == Role.VA else
+                       '  Ask them to type /start in the group to activate their account.\n')
+                    + '  /guide setup → full workspace setup guide'
+                )
                 return
         if flow.get('type') == 'connection' and flow.get('awaiting') == 'conn_name' and actor.role_user_id is not None:
             conn = await create_connection(session, client_id=actor.client_id, va_id=actor.role_user_id, prospect_name=text, platform=flow['platform'])
             await session.commit()
             context.user_data.pop(FLOW_KEY, None)
-            await update.message.reply_text(f'✅ Connection logged for {conn.prospect_name} on {flow["platform"]}. Follow-up scheduled automatically.')
+            await update.message.reply_text(
+                f'Connection logged!\n\n'
+                f'  Name:      {conn.prospect_name}\n'
+                f'  Platform:  {flow["platform"]}\n\n'
+                'Follow-up reminder will be sent in 3 days.\n'
+                'View follow-ups: /followups\n'
+                'For the full guide: /guide connections'
+            )
             return
         if flow.get('type') == 'quickask' and flow.get('awaiting') == 'quickask_msg' and actor.role != Role.VA:
             await update.message.reply_text('❌ Only VAs can ask supervisors.')
