@@ -1,0 +1,46 @@
+# ============================================================
+# systemd service unit for BeeSmartVA Bot
+#
+# SETUP (run once as root):
+#   1. Edit the three YOUR_... placeholders below
+#   2. sudo cp beesmart.service /etc/systemd/system/
+#   3. sudo systemctl daemon-reload
+#   4. sudo systemctl enable beesmart
+#   5. sudo systemctl start beesmart
+#
+# Useful commands:
+#   sudo systemctl status beesmart
+#   sudo journalctl -u beesmart -f          # live logs
+#   sudo systemctl restart beesmart
+#   sudo systemctl stop beesmart
+# ============================================================
+
+[Unit]
+Description=BeeSmartVA Telegram Bot
+After=network.target
+
+[Service]
+Type=simple
+
+# ── Change these three lines ─────────────────────────────────
+User=YOUR_LINUX_USER
+Group=YOUR_LINUX_USER
+WorkingDirectory=/home/YOUR_LINUX_USER/beesmart
+# ─────────────────────────────────────────────────────────────
+
+# Load .env automatically
+EnvironmentFile=%h/beesmart/.env
+
+ExecStart=/home/YOUR_LINUX_USER/beesmart/.venv/bin/python -m app.main
+
+# Restart automatically if it crashes
+Restart=on-failure
+RestartSec=10
+
+# Clean logging to journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=beesmart
+
+[Install]
+WantedBy=multi-user.target
