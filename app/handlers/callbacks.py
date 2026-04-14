@@ -1,5 +1,5 @@
 from sqlalchemy import select
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from app.db import SessionLocal
@@ -45,7 +45,12 @@ async def timesheet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             client_user = await session.scalar(select(User).where(User.client_id == actor.client_id, User.role.in_([Role.CLIENT, Role.BUSINESS_MANAGER])).order_by(User.id.asc()))
             if client_user:
                 await context.bot.send_message(chat_id=client_user.telegram_user_id, text='A timesheet is ready for your final approval.\n\n' + text, reply_markup=timesheet_client_keyboard(timesheet.id))
-            await query.edit_message_text(query.message.text + '\n\nApproved and sent to client ✓')
+            await query.edit_message_text(
+                query.message.text + '\n\n✅ Approved and sent to client for final sign-off.',
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton('📋 View pending timesheets — /timesheets', callback_data='ui:backtomenu')],
+                ]),
+            )
             return
         if action == 'client_approve':
             if not can_final_approve(actor.role):
@@ -56,7 +61,12 @@ async def timesheet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 return
             await approve_by_client(session, timesheet=timesheet, client_user_id=actor.role_user_id)
             await session.commit()
-            await query.edit_message_text(query.message.text + '\n\nFinal approval complete ✓')
+            await query.edit_message_text(
+                query.message.text + '\n\n✅ Final approval complete. Timesheet is now approved.',
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton('📊 View Reports', callback_data='ui:reports')],
+                ]),
+            )
             return
         if action == 'query':
             if actor.role not in {Role.CLIENT, Role.SUPERVISOR, Role.BUSINESS_MANAGER}:
@@ -64,7 +74,9 @@ async def timesheet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 return
             await mark_queried(session, timesheet=timesheet, actor_id=actor.role_user_id, note='Question raised from inline button.')
             await session.commit()
-            await query.edit_message_text(query.message.text + '\n\nMarked as queried. Please follow up.')
+            await query.edit_message_text(
+                query.message.text + '\n\n❓ Marked as queried — the VA has been notified to follow up.',
+            )
 
 
 async def draft_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -89,15 +101,25 @@ async def draft_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await approve_draft(session, draft=draft, actor_id=actor.role_user_id)
             await session.commit()
             if va:
-                await context.bot.send_message(chat_id=va.telegram_user_id, text=f'{draft.draft_code} was approved.')
-            await query.edit_message_text(query.message.text + '\n\nApproved ✓')
+                await context.bot.send_message(
+                    chat_id=va.telegram_user_id,
+                    text=f'✅ {draft.draft_code} was approved! You can now mark it as posted with /posted {draft.draft_code}',
+                )
+            await query.edit_message_text(
+                query.message.text + '\n\n✅ Draft approved — the VA has been notified.',
+            )
             return
         if action == 'revise':
             await revise_draft(session, draft=draft, actor_id=actor.role_user_id, note='Revision requested from inline button')
             await session.commit()
             if va:
-                await context.bot.send_message(chat_id=va.telegram_user_id, text=f'{draft.draft_code} needs a revision.')
-            await query.edit_message_text(query.message.text + '\n\nRevision requested.')
+                await context.bot.send_message(
+                    chat_id=va.telegram_user_id,
+                    text=f'✏️ {draft.draft_code} needs a revision. Please update and resubmit.',
+                )
+            await query.edit_message_text(
+                query.message.text + '\n\n✏️ Revision requested — the VA has been notified.',
+            )
             return
 
 
@@ -126,4 +148,10 @@ async def score_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             actor_id=actor.role_user_id,
         )
         await session.commit()
-        await query.edit_message_text(f'Thank you. Score recorded: {score}/5.')
+        labels = {1: 'Poor 😕', 2: 'Okay 😐', 3: 'Good 🙂', 4: 'Great 😊', 5: 'Excellent 🌟'}
+        await query.edit_message_text(
+            f'Thank you! Score recorded: {score}/5 — {labels.get(score, "")}',
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton('📊 View score history — type /scores', callback_data='ui:report:scores')],
+            ]),
+        )

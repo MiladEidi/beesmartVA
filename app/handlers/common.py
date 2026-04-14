@@ -1,4 +1,4 @@
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from app.db import SessionLocal
@@ -413,38 +413,75 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             'This group has not been set up yet.\n\n'
             'To get started:\n'
             '  1. Run /setup with your workspace details\n'
-            '  2. Type /guide setup for the full setup instructions\n\n'
-            'Already a team member? Ask your Business Manager to add you with /adduser.'
+            '  2. Tap Setup Guide below for full instructions\n\n'
+            'Already a team member? Ask your Business Manager to add you.'
+        )
+        await update.message.reply_text(
+            msg,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton('⚙️ Setup Guide — step-by-step instructions', callback_data='ui:guide:setup')],
+            ]),
         )
     else:
-        msg = f'Welcome back! You are registered as {role.value}.\nUse /menu for guided actions or /help for your quick reference.'
-    await update.message.reply_text(msg, reply_markup=role_main_keyboard(role))
+        name = actor.display_name if actor else ''
+        await update.message.reply_text(
+            f'Welcome back, {name}!\n\n'
+            f'You are registered as {role.value}.\n'
+            'Tap Menu below or use the buttons in the keyboard.',
+            reply_markup=role_main_keyboard(role),
+        )
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     async with SessionLocal() as session:
         actor = await resolve_actor(session, update)
         role = actor.role if actor else None
+    guide_kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton('📖 Browse all guide topics', callback_data='ui:helpguide')],
+        [InlineKeyboardButton('Back to menu', callback_data='ui:backtomenu')],
+    ])
     if role is None:
-        await update.message.reply_text(GENERAL_GUIDE, reply_markup=role_main_keyboard(None))
+        await update.message.reply_text(GENERAL_GUIDE, reply_markup=guide_kb)
         return
-    await update.message.reply_text(ROLE_HELP[role], reply_markup=role_main_keyboard(role))
+    await update.message.reply_text(ROLE_HELP[role], reply_markup=guide_kb)
 
 
 async def guide_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles /guide and /guide [topic] and /howto [topic]."""
     topic = (context.args[0].lower() if context.args else None)
     if topic and topic in TOPIC_GUIDES:
-        await update.message.reply_text(TOPIC_GUIDES[topic])
-        return
-    if topic:
-        topic_list = '  ' + '\n  '.join(f'/guide {t}' for t in TOPIC_GUIDES)
         await update.message.reply_text(
-            f'Unknown guide topic: "{topic}"\n\nAvailable topics:\n{topic_list}'
+            TOPIC_GUIDES[topic],
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton('◀ All guide topics', callback_data='ui:helpguide')],
+                [InlineKeyboardButton('Back to menu', callback_data='ui:backtomenu')],
+            ]),
         )
         return
-    # No topic — show role guide
-    await help_command(update, context)
+    if topic:
+        rows = [[InlineKeyboardButton(f'📖 {t.capitalize()} guide', callback_data=f'ui:guide:{t}')] for t in TOPIC_GUIDES]
+        rows.append([InlineKeyboardButton('Back to menu', callback_data='ui:backtomenu')])
+        await update.message.reply_text(
+            f'Unknown guide topic: "{topic}"\n\nAvailable topics — tap one:',
+            reply_markup=InlineKeyboardMarkup(rows),
+        )
+        return
+    # No topic — show clickable topic list
+    rows = [
+        [InlineKeyboardButton('⏱ Hours — log & edit daily work', callback_data='ui:guide:hours')],
+        [InlineKeyboardButton('📋 Timesheets — submit & approval flow', callback_data='ui:guide:timesheets')],
+        [InlineKeyboardButton('✅ Tasks — create, complete, flag', callback_data='ui:guide:tasks')],
+        [InlineKeyboardButton('📝 Drafts — submit content for review', callback_data='ui:guide:drafts')],
+        [InlineKeyboardButton('🔗 Follow-ups — track prospect connections', callback_data='ui:guide:connections')],
+        [InlineKeyboardButton('⚙️ Setup — workspace configuration', callback_data='ui:guide:setup')],
+        [InlineKeyboardButton('💰 Invoicing — generate & track invoices', callback_data='ui:guide:invoicing')],
+        [InlineKeyboardButton('📊 Reports — all types & auto-schedule', callback_data='ui:guide:reports')],
+        [InlineKeyboardButton('Back to menu', callback_data='ui:backtomenu')],
+    ]
+    await update.message.reply_text(
+        'Help & Guide\n\nTap a topic for step-by-step instructions:',
+        reply_markup=InlineKeyboardMarkup(rows),
+    )
 
 
 async def howto_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -459,14 +496,22 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if not actor or not client:
             await update.message.reply_text(
                 'This group has not been set up yet.\n'
-                'Run /guide setup for instructions on getting started.'
+                'Tap the guide button below to get started.',
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton('⚙️ Setup Guide', callback_data='ui:guide:setup')],
+                ]),
             )
             return
         await update.message.reply_text(
-            f'Name: {actor.display_name}\n'
-            f'Role: {actor.role.value if actor.role else "Unregistered"}\n'
-            f'Client: {client.name}\n'
-            f'Timezone: {client.timezone}'
+            f'👤 Your Profile\n\n'
+            f'Name:      {actor.display_name}\n'
+            f'Role:      {actor.role.value if actor.role else "Unregistered"}\n'
+            f'Client:    {client.name}\n'
+            f'Timezone:  {client.timezone}',
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton('❓ Help & Guide', callback_data='ui:helpguide')],
+                [InlineKeyboardButton('Back to menu', callback_data='ui:backtomenu')],
+            ]),
         )
 
 
