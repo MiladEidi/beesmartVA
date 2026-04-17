@@ -83,10 +83,11 @@ async def _hours_edit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 
 async def myweek_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
     async with SessionLocal() as session:
         actor = await resolve_actor(session, update)
         if not actor or actor.role != Role.VA or actor.role_user_id is None:
-            await update.message.reply_text('Only VAs can use /myweek.')
+            await update.message.reply_text('⛔ Only VAs can use /myweek.')
             return
         user = await get_user(session, user_id=actor.role_user_id, client_id=actor.client_id)
         week_start, _ = current_week_range(user.timezone)
@@ -95,22 +96,24 @@ async def myweek_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def submit_hours_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
     async with SessionLocal() as session:
         actor = await resolve_actor(session, update)
         if not actor or actor.role != Role.VA or actor.role_user_id is None:
-            await update.message.reply_text('Only VAs can submit timesheets.')
+            await update.message.reply_text('⛔ Only VAs can submit timesheets.')
             return
         user = await get_user(session, user_id=actor.role_user_id, client_id=actor.client_id)
         timesheet, logs = await submit_hours(session, va_id=actor.role_user_id, client_id=actor.client_id, actor_id=actor.role_user_id, today=date.today())
         if not user.supervisor:
             await session.rollback()
-            await update.message.reply_text('No supervisor is assigned to this VA yet.')
+            await update.message.reply_text('⚠️ No supervisor is assigned to your account yet. Contact your Business Manager.')
             return
         await session.commit()
         rate = decrypt_hourly_rate(user)
+        # Supervisor sees the rate; rate stays confidential for everyone else
         text = render_timesheet_table(user.display_name, timesheet.week_start_date, logs, rate)
-        await context.bot.send_message(chat_id=user.supervisor.telegram_user_id, text='A timesheet is ready for your review.\n\n' + text, reply_markup=timesheet_supervisor_keyboard(timesheet.id))
-        await update.message.reply_text('Timesheet sent to your supervisor.')
+        await context.bot.send_message(chat_id=user.supervisor.telegram_user_id, text='📋 A timesheet is ready for your review.\n\n' + text, reply_markup=timesheet_supervisor_keyboard(timesheet.id))
+        await update.message.reply_text('📤 Timesheet submitted!\n\nYour supervisor has been notified and will review it shortly.')
 
 
 async def timesheets_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -130,12 +133,27 @@ async def timesheets_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def rate_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     async with SessionLocal() as session:
         actor = await resolve_actor(session, update)
-        if not actor or actor.role != Role.VA or actor.role_user_id is None:
-            await update.message.reply_text('Only VAs can use /rate.')
+        if not actor or actor.role_user_id is None:
+            await update.message.reply_text('You are not registered in this group.')
             return
-        user = await get_user(session, user_id=actor.role_user_id, client_id=actor.client_id)
-        rate = decrypt_hourly_rate(user)
-        await update.message.reply_text(f'Your rate for this engagement: ${rate or 0}/hr')
+        if not has_manager_access(actor.role):
+            await update.message.reply_text('Rate information is confidential and only visible to supervisors and business managers.')
+            return
+        # Managers: show rate for a specific VA by Telegram ID arg, or list all VAs
+        if context.args:
+            try:
+                va_tg_id = int(context.args[0])
+            except ValueError:
+                await update.message.reply_text('Use: /rate [va_tg_id]')
+                return
+            va = await session.scalar(select(User).where(User.client_id == actor.client_id, User.telegram_user_id == va_tg_id, User.role == Role.VA))
+            if not va:
+                await update.message.reply_text('VA not found.')
+                return
+            rate = decrypt_hourly_rate(va)
+            await update.message.reply_text(f'💰 Rate for {va.display_name}: ${rate or 0}/hr')
+        else:
+            await update.message.reply_text('Use: /rate [va_tg_id] — or use /menu → Set Rate to update a VA\'s rate.')
 
 
 async def invoice_summary_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

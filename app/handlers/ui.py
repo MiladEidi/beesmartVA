@@ -81,19 +81,20 @@ def _user_button_rows(users: list[User], prefix: str, label_fn=None) -> list[lis
 
 
 async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
     async with SessionLocal() as session:
         actor = await resolve_actor(session, update)
         role = actor.role if actor else None
     if role is None:
         await update.message.reply_text(
-            'This group is not set up yet.\n\n'
+            '⚙️ This group is not set up yet.\n\n'
             'Run /guide setup for step-by-step setup instructions.',
             reply_markup=_menu_keyboard(role),
         )
         return
     await update.message.reply_text(
-        f'Hi {actor.display_name if actor else ""}! Choose an action below.\n'
-        'Tap "Help & Guide" for step-by-step instructions on any feature.',
+        f'👋 Hi {actor.display_name if actor else ""}! What would you like to do?\n\n'
+        '💡 Tap "Help & Guide" for step-by-step instructions on any feature.',
         reply_markup=_menu_keyboard(role),
     )
 
@@ -720,6 +721,7 @@ async def flow_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     flow = context.user_data.get(FLOW_KEY)
     if not flow or not update.message or not update.message.text:
         return
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
     async with SessionLocal() as session:
         actor = await resolve_actor(session, update)
         if not actor:
@@ -733,14 +735,15 @@ async def flow_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             context.user_data.pop(FLOW_KEY, None)
             await update.message.reply_text(
                 f'✅ Hours logged!\n\n'
-                f'  Date:  {work_date.isoformat()}\n'
-                f'  Hours: {flow["hours"]}h\n'
-                f'  Note:  {text}\n\n'
+                f'📅 Date:  {work_date.isoformat()}\n'
+                f'⏱ Hours: {flow["hours"]}h\n'
+                f'📝 Note:  {text}\n\n'
+                '─────────────────────\n'
                 'What would you like to do next?',
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton('⏱ Log more hours', callback_data='ui:hours:start')],
                     [InlineKeyboardButton('📤 Submit Timesheet', callback_data='ui:submittimesheet')],
-                    [InlineKeyboardButton('Back to menu', callback_data='ui:backtomenu')],
+                    [InlineKeyboardButton('🏠 Back to menu', callback_data='ui:backtomenu')],
                 ]),
             )
             return
@@ -750,11 +753,13 @@ async def flow_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             context.user_data.pop(FLOW_KEY, None)
             await update.message.reply_text(
                 f'✅ Task #{task.id} created!\n\n'
-                f'{text}',
+                f'📋 {text}\n\n'
+                '─────────────────────\n'
+                'Track it from My Tasks whenever you\'re ready.',
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton('📋 View my tasks', callback_data='ui:mytasks:view')],
                     [InlineKeyboardButton('✅ Create another task', callback_data='ui:task:start')],
-                    [InlineKeyboardButton('Back to menu', callback_data='ui:backtomenu')],
+                    [InlineKeyboardButton('🏠 Back to menu', callback_data='ui:backtomenu')],
                 ]),
             )
             return
@@ -763,15 +768,16 @@ async def flow_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             await session.commit()
             context.user_data.pop(FLOW_KEY, None)
             await update.message.reply_text(
-                f'✅ Draft submitted!\n\n'
-                f'  Code:     {draft.draft_code}\n'
-                f'  Platform: {flow["platform"].capitalize()}\n'
-                f'  Status:   Pending review\n\n'
-                'Your supervisor will receive it for review.',
+                f'✅ Draft submitted for review!\n\n'
+                f'🔖 Code:     {draft.draft_code}\n'
+                f'📱 Platform: {flow["platform"].capitalize()}\n'
+                f'🕐 Status:   Pending review\n\n'
+                '─────────────────────\n'
+                'Your supervisor will be notified to review it.',
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton('📝 Submit another draft', callback_data='ui:draft:start')],
                     [InlineKeyboardButton('📖 Drafts Guide', callback_data='ui:guide:drafts')],
-                    [InlineKeyboardButton('Back to menu', callback_data='ui:backtomenu')],
+                    [InlineKeyboardButton('🏠 Back to menu', callback_data='ui:backtomenu')],
                 ]),
             )
             return
@@ -784,15 +790,15 @@ async def flow_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                     flow['telegram_user_id'] = int(text)
                 except ValueError:
                     await update.message.reply_text(
-                        'Telegram user ID must be a number.\n\n'
+                        '⚠️ Telegram user ID must be a number.\n\n'
                         'How to find it: Ask the user to message @userinfobot — it shows their numeric ID.'
                     )
                     return
                 flow['awaiting'] = 'adduser_name'
                 await update.message.reply_text(
                     f'Step 3 of 3 — Add User\n\n'
-                    f'Telegram ID: {flow["telegram_user_id"]}\n\n'
-                    'Now send the display name for this user.\n'
+                    f'✅ Telegram ID: {flow["telegram_user_id"]}\n\n'
+                    '📛 Now send the display name for this user.\n'
                     'Example: Sarah Jones'
                 )
                 return
@@ -801,7 +807,7 @@ async def flow_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                 if role == Role.BUSINESS_MANAGER and actor.role != Role.BUSINESS_MANAGER:
                     context.user_data.pop(FLOW_KEY, None)
                     await update.message.reply_text(
-                        'Only the current Business Manager can assign or change the Business Manager role.'
+                        '⛔ Only the current Business Manager can assign or change the Business Manager role.'
                     )
                     return
                 try:
@@ -827,18 +833,18 @@ async def flow_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                     ]
                 next_rows += [
                     [InlineKeyboardButton('➕ Add another user', callback_data='ui:adduser:start')],
-                    [InlineKeyboardButton('Back to menu', callback_data='ui:backtomenu')],
+                    [InlineKeyboardButton('🏠 Back to menu', callback_data='ui:backtomenu')],
                 ]
                 extra = (
-                    'Use the buttons below to assign their supervisor and rate.'
+                    '👇 Use the buttons below to assign their supervisor and rate.'
                     if user.role == Role.VA else
-                    'Ask them to type /start in the group to activate their account.'
+                    '💬 Ask them to type /start in the group to activate their account.'
                 )
                 await update.message.reply_text(
-                    f'✅ User added!\n\n'
-                    f'  Name:     {user.display_name}\n'
-                    f'  Role:     {user.role.value}\n'
-                    f'  User ID:  #{user.id}\n\n'
+                    f'🎉 User added successfully!\n\n'
+                    f'👤 Name:     {user.display_name}\n'
+                    f'🏷 Role:     {user.role.value}\n'
+                    f'🆔 User ID:  #{user.id}\n\n'
                     f'{extra}',
                     reply_markup=InlineKeyboardMarkup(next_rows),
                 )
@@ -849,19 +855,20 @@ async def flow_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             context.user_data.pop(FLOW_KEY, None)
             await update.message.reply_text(
                 f'✅ Connection logged!\n\n'
-                f'  Name:      {conn.prospect_name}\n'
-                f'  Platform:  {flow["platform"]}\n\n'
-                'A follow-up reminder will be sent in 3 days.',
+                f'👤 Name:      {conn.prospect_name}\n'
+                f'📱 Platform:  {flow["platform"]}\n\n'
+                '─────────────────────\n'
+                '⏰ A follow-up reminder will be sent in 3 days.',
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton('🔗 Log another connection', callback_data='ui:connection:start')],
                     [InlineKeyboardButton('📖 Follow-ups Guide', callback_data='ui:guide:connections')],
-                    [InlineKeyboardButton('Back to menu', callback_data='ui:backtomenu')],
+                    [InlineKeyboardButton('🏠 Back to menu', callback_data='ui:backtomenu')],
                 ]),
             )
             return
         _quick_kb = InlineKeyboardMarkup([
             [InlineKeyboardButton('⚡ Back to Quick Actions', callback_data='ui:quickactions:start')],
-            [InlineKeyboardButton('Back to menu', callback_data='ui:backtomenu')],
+            [InlineKeyboardButton('🏠 Back to menu', callback_data='ui:backtomenu')],
         ])
         if flow.get('type') == 'quickask' and flow.get('awaiting') == 'quickask_msg':
             if actor.role != Role.VA or actor.role_user_id is None:
@@ -873,9 +880,9 @@ async def flow_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                 context.user_data.pop(FLOW_KEY, None)
                 await update.message.reply_text('❌ No supervisor assigned to you yet. Contact your Business Manager.')
                 return
-            await context.bot.send_message(chat_id=va.supervisor.telegram_user_id, text=f'❓ Quick question from {va.display_name}:\n\n{text}')
+            await context.bot.send_message(chat_id=va.supervisor.telegram_user_id, text=f'❓ Question from {va.display_name}:\n\n{text}')
             context.user_data.pop(FLOW_KEY, None)
-            await update.message.reply_text('❓ Question sent to your supervisor.', reply_markup=_quick_kb)
+            await update.message.reply_text('✅ Question sent to your supervisor!\n\nThey\'ll get back to you shortly.', reply_markup=_quick_kb)
             return
         if flow.get('type') == 'quickflag' and flow.get('awaiting') == 'quickflag_msg':
             if actor.role != Role.VA or actor.role_user_id is None:
@@ -889,7 +896,7 @@ async def flow_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                 return
             await context.bot.send_message(chat_id=va.supervisor.telegram_user_id, text=f'🚩 Issue flagged by {va.display_name}:\n\n{text}')
             context.user_data.pop(FLOW_KEY, None)
-            await update.message.reply_text('🚩 Issue flagged and sent to your supervisor.', reply_markup=_quick_kb)
+            await update.message.reply_text('✅ Issue flagged!\n\nYour supervisor has been notified.', reply_markup=_quick_kb)
             return
         if flow.get('type') == 'quickconfirm' and flow.get('awaiting') == 'quickconfirm_msg':
             if actor.role != Role.VA or actor.role_user_id is None:
@@ -901,15 +908,15 @@ async def flow_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                 context.user_data.pop(FLOW_KEY, None)
                 await update.message.reply_text('❌ No supervisor assigned to you yet. Contact your Business Manager.')
                 return
-            await context.bot.send_message(chat_id=va.supervisor.telegram_user_id, text=f'🖐️ {va.display_name} needs confirmation:\n\n{text}')
+            await context.bot.send_message(chat_id=va.supervisor.telegram_user_id, text=f'🖐️ {va.display_name} needs your confirmation:\n\n{text}')
             context.user_data.pop(FLOW_KEY, None)
-            await update.message.reply_text('🖐️ Confirmation request sent to your supervisor.', reply_markup=_quick_kb)
+            await update.message.reply_text('✅ Confirmation request sent!\n\nYour supervisor will respond shortly.', reply_markup=_quick_kb)
             return
         if flow.get('type') == 'setrate' and flow.get('awaiting') == 'setrate_amount':
             try:
                 amount = Decimal(text)
             except InvalidOperation:
-                await update.message.reply_text('Please send a valid number, for example 12.5')
+                await update.message.reply_text('⚠️ Please send a valid number, for example 12.5')
                 return
             va = await get_user_by_internal_id(session, client_id=actor.client_id, user_id=flow['va_id'])
             if not va:
@@ -920,10 +927,12 @@ async def flow_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             await session.commit()
             context.user_data.pop(FLOW_KEY, None)
             await update.message.reply_text(
-                f'✅ Rate updated for {user.display_name}: ${amount}/hr',
+                f'✅ Rate updated!\n\n'
+                f'👤 VA: {user.display_name}\n'
+                f'💰 New rate: ${amount}/hr',
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton('💰 Set another rate', callback_data='ui:setrate:start')],
-                    [InlineKeyboardButton('Back to menu', callback_data='ui:backtomenu')],
+                    [InlineKeyboardButton('🏠 Back to menu', callback_data='ui:backtomenu')],
                 ]),
             )
             return

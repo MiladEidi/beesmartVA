@@ -41,10 +41,12 @@ async def timesheet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await session.commit()
             rate = decrypt_hourly_rate(va) if va else None
             logs = await logs_for_week(session, va_id=timesheet.va_id, client_id=timesheet.client_id, week_start=timesheet.week_start_date)
-            text = render_timesheet_table(va.display_name if va else 'VA', timesheet.week_start_date, logs, rate)
+            # Supervisor/BM sees rate; client sees timesheet without rate (confidential)
+            supervisor_text = render_timesheet_table(va.display_name if va else 'VA', timesheet.week_start_date, logs, rate)
+            client_text = render_timesheet_table(va.display_name if va else 'VA', timesheet.week_start_date, logs, None)
             client_user = await session.scalar(select(User).where(User.client_id == actor.client_id, User.role.in_([Role.CLIENT, Role.BUSINESS_MANAGER])).order_by(User.id.asc()))
             if client_user:
-                await context.bot.send_message(chat_id=client_user.telegram_user_id, text='A timesheet is ready for your final approval.\n\n' + text, reply_markup=timesheet_client_keyboard(timesheet.id))
+                await context.bot.send_message(chat_id=client_user.telegram_user_id, text='📋 A timesheet is ready for your final approval.\n\n' + client_text, reply_markup=timesheet_client_keyboard(timesheet.id))
             await query.edit_message_text(
                 query.message.text + '\n\n✅ Approved and sent to client for final sign-off.',
                 reply_markup=InlineKeyboardMarkup([
