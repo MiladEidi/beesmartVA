@@ -200,21 +200,21 @@ async def rate_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         if not has_manager_access(actor.role):
             await update.message.reply_text('Rate information is only available to VAs (own rate), supervisors, and business managers.')
             return
-        # Managers: show rate for a specific VA by Telegram ID arg.
+        # Managers: show rate for a specific VA by internal user ID arg.
         if context.args:
             try:
-                va_tg_id = int(context.args[0])
+                va_user_id = int(context.args[0])
             except ValueError:
-                await update.message.reply_text('Use: /rate [va_tg_id]')
+                await update.message.reply_text('Use: /rate [va_user_id]')
                 return
-            va = await session.scalar(select(User).where(User.client_id == actor.client_id, User.telegram_user_id == va_tg_id, User.role == Role.VA))
+            va = await session.scalar(select(User).where(User.client_id == actor.client_id, User.id == va_user_id, User.role == Role.VA))
             if not va:
                 await update.message.reply_text('VA not found.')
                 return
             rate = decrypt_hourly_rate(va)
             await update.message.reply_text(f'💰 Rate for {va.display_name}: ${rate or 0}/hr')
         else:
-            await update.message.reply_text('Use: /rate [va_tg_id] — or use /menu → Set Rate to update a VA\'s rate.')
+            await update.message.reply_text('Use: /rate [va_user_id] — or use /menu → Set Rate to update a VA\'s rate.')
 
 
 async def invoice_summary_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

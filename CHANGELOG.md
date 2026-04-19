@@ -4,6 +4,15 @@ All notable changes to BeeSmartVA are recorded here, newest first.
 
 ---
 
+## 2026-04-19 — Fix /rate to use internal va_user_id instead of Telegram ID
+
+### Fix `/rate` VA lookup for managers
+- `/rate [id]` now looks up the VA by their internal user ID (`User.id`) instead of Telegram ID
+- Previously the command was unusable because managers don't know VAs' Telegram numeric IDs
+- Usage hint updated to `/rate [va_user_id]` throughout
+
+---
+
 ## 2026-04-19 — VAs can see their own rate; full draft client-review flow
 **Commits:** `3878e60`, `43befc7`
 
