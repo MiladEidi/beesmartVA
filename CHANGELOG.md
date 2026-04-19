@@ -4,6 +4,18 @@ All notable changes to BeeSmartVA are recorded here, newest first.
 
 ---
 
+## 2026-04-19 — Fix "Actor not registered" error on inline button callbacks in private chat
+
+### Fix timesheet/draft/score inline buttons failing in private chat
+- `resolve_actor` identifies the client via `chat.id`, which only works in group chats. In a private chat (where supervisors and clients receive notifications), `chat.id` is the user's own Telegram ID, so no client was found and every button press showed "Actor not registered in this group."
+- Added `resolve_actor_for_client(session, update, client_id)` in `auth.py` for callbacks that already know the client from the record being acted on
+- `timesheet_callback`: loads the timesheet first (to get `client_id`), then resolves actor via `resolve_actor_for_client`
+- `draft_callback`: same pattern — loads draft first, then resolves actor
+- `score_callback`: `client_id` is already embedded in the callback data; switched directly to `resolve_actor_for_client`
+- Also fixed the same post-commit expired-instance bug in `timesheet_callback` `sup_approve` path (same root cause as the `/submit hours` fix)
+
+---
+
 ## 2026-04-19 — Fix /submit hours silent crash (no response to VA)
 
 ### Fix `submit_hours_command` silent crash after session commit
