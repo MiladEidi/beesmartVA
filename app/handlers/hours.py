@@ -138,10 +138,30 @@ async def submit_hours_command(update: Update, context: ContextTypes.DEFAULT_TYP
             return
         await session.commit()
         rate = decrypt_hourly_rate(user)
-        # Supervisor sees the rate; rate stays confidential for everyone else
         text = render_timesheet_table(user.display_name, timesheet.week_start_date, logs, rate)
-        await context.bot.send_message(chat_id=user.supervisor.telegram_user_id, text='📋 A timesheet is ready for your review.\n\n' + text, reply_markup=timesheet_supervisor_keyboard(timesheet.id))
-        await update.message.reply_text('📤 Timesheet submitted!\n\nYour supervisor has been notified and will review it shortly.')
+
+        # Always confirm to the VA first so they always get a response.
+        await update.message.reply_text(
+            '📤 Timesheet submitted!\n\n'
+            'Your supervisor has been notified and will review it shortly.'
+        )
+
+        # Notify the supervisor privately. This can fail if the supervisor has
+        # never started the bot in private chat — catch that gracefully.
+        try:
+            await context.bot.send_message(
+                chat_id=user.supervisor.telegram_user_id,
+                text='📋 A timesheet is ready for your review.\n\n' + text,
+                reply_markup=timesheet_supervisor_keyboard(timesheet.id),
+            )
+        except Exception:
+            # Supervisor notification failed — warn the VA so they can follow up manually.
+            await update.message.reply_text(
+                '⚠️ Could not notify your supervisor automatically.\n\n'
+                'This usually means they have not started the bot in private chat yet.\n\n'
+                f'Ask {user.supervisor.display_name} to open a private chat with this bot '
+                'and send /start — then resubmit your timesheet.'
+            )
 
 
 async def timesheets_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
