@@ -19,8 +19,15 @@ def timesheet_client_keyboard(timesheet_id: int) -> InlineKeyboardMarkup:
 
 def draft_keyboard(draft_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton('✅ Approve — looks good, ready to post', callback_data=f'df:approve:{draft_id}')],
-        [InlineKeyboardButton('✏️ Request Revision — needs changes', callback_data=f'df:revise:{draft_id}')],
+        [InlineKeyboardButton('✅ Approve — forward to client for final sign-off', callback_data=f'df:approve:{draft_id}')],
+        [InlineKeyboardButton('✏️ Request Revision — needs changes before client sees it', callback_data=f'df:revise:{draft_id}')],
+    ])
+
+
+def draft_client_keyboard(draft_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton('✅ Approve — looks good, ready to post', callback_data=f'df:client_approve:{draft_id}')],
+        [InlineKeyboardButton('✏️ Request Revision — needs changes', callback_data=f'df:client_revise:{draft_id}')],
     ])
 
 

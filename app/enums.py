@@ -54,6 +54,7 @@ class ConnectionStatus(str, Enum):
 
 class DraftStatus(str, Enum):
     PENDING = 'PENDING'
+    CLIENT_PENDING = 'CLIENT_PENDING'
     APPROVED = 'APPROVED'
     REVISED = 'REVISED'
     POSTED = 'POSTED'

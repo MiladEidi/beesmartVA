@@ -40,12 +40,23 @@ async def get_draft(session: AsyncSession, *, draft_id: int, client_id: int | No
     return await session.scalar(stmt)
 
 
-async def approve_draft(session: AsyncSession, *, draft: Draft, actor_id: int) -> Draft:
+async def supervisor_approve_draft(session: AsyncSession, *, draft: Draft, actor_id: int) -> Draft:
+    """Supervisor approves — moves draft to CLIENT_PENDING for client review."""
+    draft.status = DraftStatus.CLIENT_PENDING
+    draft.actioned_at = datetime.utcnow()
+    draft.actioned_by = actor_id
+    await session.flush()
+    await write_audit(session, client_id=draft.client_id, actor_id=actor_id, action='draft_supervisor_approved', entity_type='draft', entity_id=draft.id)
+    return draft
+
+
+async def client_approve_draft(session: AsyncSession, *, draft: Draft, actor_id: int) -> Draft:
+    """Client approves — draft is now ready to post."""
     draft.status = DraftStatus.APPROVED
     draft.actioned_at = datetime.utcnow()
     draft.actioned_by = actor_id
     await session.flush()
-    await write_audit(session, client_id=draft.client_id, actor_id=actor_id, action='draft_approved', entity_type='draft', entity_id=draft.id)
+    await write_audit(session, client_id=draft.client_id, actor_id=actor_id, action='draft_client_approved', entity_type='draft', entity_id=draft.id)
     return draft
 
 
@@ -75,6 +86,18 @@ async def pending_drafts(session: AsyncSession, *, client_id: int) -> list[Draft
 async def overdue_pending_drafts(session: AsyncSession) -> list[Draft]:
     threshold = datetime.utcnow() - timedelta(hours=48)
     rows = await session.scalars(select(Draft).where(Draft.status == DraftStatus.PENDING, Draft.submitted_at <= threshold))
+    return list(rows.all())
+
+
+async def client_pending_drafts_overdue(session: AsyncSession, *, hours: int) -> list[Draft]:
+    """Return CLIENT_PENDING drafts that have been waiting longer than `hours` without client action."""
+    threshold = datetime.utcnow() - timedelta(hours=hours)
+    rows = await session.scalars(
+        select(Draft).where(
+            Draft.status == DraftStatus.CLIENT_PENDING,
+            Draft.actioned_at <= threshold,
+        )
+    )
     return list(rows.all())
 
 

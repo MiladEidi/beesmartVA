@@ -6,13 +6,13 @@ from app.db import SessionLocal
 from app.enums import Role, ScoreTrigger, TimesheetStatus
 from app.models import User
 from app.services.auth import resolve_actor
-from app.services.drafts import approve_draft, get_draft, revise_draft
+from app.services.drafts import client_approve_draft, get_draft, revise_draft, supervisor_approve_draft
 from app.services.hours import approve_by_client, approve_by_supervisor, get_timesheet, get_user, logs_for_week, mark_queried
-from app.services.permissions import can_final_approve, can_review_drafts, has_manager_access
+from app.services.permissions import can_final_approve, has_manager_access
 from app.services.scores import save_score
 from app.services.users import decrypt_hourly_rate
 from app.utils.formatters import render_timesheet_table
-from app.utils.telegram import timesheet_client_keyboard
+from app.utils.telegram import draft_client_keyboard, timesheet_client_keyboard
 
 
 async def timesheet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -95,32 +95,129 @@ async def draft_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if not draft:
             await query.edit_message_text('Draft not found in this group.')
             return
-        if not can_review_drafts(actor.role):
-            await query.answer('Only the client, supervisor, or business manager can review drafts.', show_alert=True)
-            return
         va = await session.scalar(select(User).where(User.id == draft.va_id, User.client_id == actor.client_id))
+
+        # ── Step 1: Supervisor approves → moves to CLIENT_PENDING ──────────────
         if action == 'approve':
-            await approve_draft(session, draft=draft, actor_id=actor.role_user_id)
+            if not has_manager_access(actor.role):
+                await query.answer('Only supervisors or business managers can approve at this step.', show_alert=True)
+                return
+            if draft.status.value != 'PENDING':
+                await query.answer('This draft is not waiting for supervisor review.', show_alert=True)
+                return
+            await supervisor_approve_draft(session, draft=draft, actor_id=actor.role_user_id)
             await session.commit()
-            if va:
-                await context.bot.send_message(
-                    chat_id=va.telegram_user_id,
-                    text=f'✅ {draft.draft_code} was approved! You can now mark it as posted with /posted {draft.draft_code}',
-                )
-            await query.edit_message_text(
-                query.message.text + '\n\n✅ Draft approved — the VA has been notified.',
+            # Find a client user and notify them
+            client_user = await session.scalar(
+                select(User).where(
+                    User.client_id == actor.client_id,
+                    User.role.in_([Role.CLIENT, Role.BUSINESS_MANAGER]),
+                ).order_by(User.id.asc())
             )
+            if client_user:
+                try:
+                    await context.bot.send_message(
+                        chat_id=client_user.telegram_user_id,
+                        text=(
+                            f'📝 A content draft is ready for your review.\n\n'
+                            f'Draft: {draft.draft_code}\n'
+                            f'Platform: {draft.platform}\n\n'
+                            f'{draft.content_text}\n\n'
+                            f'Please approve or request changes using the buttons below.'
+                        ),
+                        reply_markup=draft_client_keyboard(draft.id),
+                    )
+                    await query.edit_message_text(
+                        query.message.text + '\n\n✅ Approved and sent to the client for final sign-off.',
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton('📝 View all drafts — /drafts', callback_data='ui:backtomenu')],
+                        ]),
+                    )
+                except Exception:
+                    await query.edit_message_text(
+                        query.message.text + (
+                            '\n\n✅ Draft approved — but the client could not be notified automatically.\n'
+                            'They may not have started the bot in private chat yet.\n'
+                            'Ask them to open a private chat with this bot and send /start.'
+                        ),
+                    )
+            else:
+                await query.edit_message_text(
+                    query.message.text + '\n\n✅ Draft approved — no client user found to notify.',
+                )
             return
+
+        # ── Step 1 revision: Supervisor requests revision ───────────────────────
         if action == 'revise':
+            if not has_manager_access(actor.role):
+                await query.answer('Only supervisors or business managers can request revisions at this step.', show_alert=True)
+                return
+            if draft.status.value != 'PENDING':
+                await query.answer('This draft is not waiting for supervisor review.', show_alert=True)
+                return
             await revise_draft(session, draft=draft, actor_id=actor.role_user_id, note='Revision requested from inline button')
             await session.commit()
             if va:
                 await context.bot.send_message(
                     chat_id=va.telegram_user_id,
-                    text=f'✏️ {draft.draft_code} needs a revision. Please update and resubmit.',
+                    text=(
+                        f'✏️ {draft.draft_code} needs a revision before it goes to the client.\n\n'
+                        f'Please update the content and resubmit with /draft {draft.platform} [updated content]'
+                    ),
                 )
             await query.edit_message_text(
                 query.message.text + '\n\n✏️ Revision requested — the VA has been notified.',
+            )
+            return
+
+        # ── Step 2: Client approves → draft is ready to post ───────────────────
+        if action == 'client_approve':
+            if not can_final_approve(actor.role):
+                await query.answer('Only the client or business manager can give final approval.', show_alert=True)
+                return
+            if draft.status.value != 'CLIENT_PENDING':
+                await query.answer('This draft is not waiting for your review.', show_alert=True)
+                return
+            await client_approve_draft(session, draft=draft, actor_id=actor.role_user_id)
+            await session.commit()
+            if va:
+                await context.bot.send_message(
+                    chat_id=va.telegram_user_id,
+                    text=(
+                        f'🎉 {draft.draft_code} has been approved by the client and is ready to post!\n\n'
+                        f'Mark it as published once it\'s live:\n'
+                        f'  /posted {draft.draft_code}'
+                    ),
+                )
+            await query.edit_message_text(
+                query.message.text + '\n\n✅ Approved! The VA has been notified and will publish the content.',
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton('📝 View all drafts — /drafts', callback_data='ui:report:drafts')],
+                ]),
+            )
+            return
+
+        # ── Step 2 revision: Client requests revision ────────────────────────
+        if action == 'client_revise':
+            if not can_final_approve(actor.role):
+                await query.answer('Only the client or business manager can request revisions at this step.', show_alert=True)
+                return
+            if draft.status.value != 'CLIENT_PENDING':
+                await query.answer('This draft is not waiting for your review.', show_alert=True)
+                return
+            await revise_draft(session, draft=draft, actor_id=actor.role_user_id, note='Client requested revision')
+            await session.commit()
+            if va:
+                await context.bot.send_message(
+                    chat_id=va.telegram_user_id,
+                    text=(
+                        f'✏️ The client has requested changes to {draft.draft_code}.\n\n'
+                        f'Please revise the content and resubmit:\n'
+                        f'  /draft {draft.platform} [updated content]'
+                    ),
+                )
+            await query.edit_message_text(
+                query.message.text + '\n\n✏️ Revision requested — the VA has been notified to update the content.',
             )
             return
 

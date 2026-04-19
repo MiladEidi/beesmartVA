@@ -11,7 +11,7 @@ from telegram import Bot
 from app.db import SessionLocal
 from app.enums import Role, TimesheetStatus
 from app.models import Client, User, Timesheet
-from app.services.drafts import overdue_pending_drafts
+from app.services.drafts import client_pending_drafts_overdue, overdue_pending_drafts
 from app.services.followups import due_followups
 from app.services.hours import pending_timesheets
 from app.services.reports import (
@@ -133,11 +133,49 @@ async def job_daily(bot: Bot) -> None:
             if va and va.active:
                 await bot.send_message(chat_id=va.telegram_user_id, text=f'Time to follow up with {item.prospect_name} on {item.platform}.')
 
-        # Draft reminders go to supervisors / business managers only, not clients.
+        # Draft reminders — supervisors for PENDING drafts they haven't reviewed.
         for draft in await overdue_pending_drafts(session):
             recipients = await _users_for_roles(session, draft.client_id, [Role.SUPERVISOR, Role.BUSINESS_MANAGER])
             for user in recipients:
-                await bot.send_message(chat_id=user.telegram_user_id, text=f'Heads-up: draft {draft.draft_code} is still pending review.')
+                await bot.send_message(
+                    chat_id=user.telegram_user_id,
+                    text=(
+                        f'📝 Reminder: draft {draft.draft_code} ({draft.platform}) has been waiting for your review for over 48 hours.\n\n'
+                        f'The VA is waiting for feedback before this content can be published.\n\n'
+                        f'Use /drafts to see the full queue.'
+                    ),
+                )
+
+        # Draft reminders — clients for CLIENT_PENDING drafts (48h nudge).
+        for draft in await client_pending_drafts_overdue(session, hours=48):
+            client_users = await _users_for_roles(session, draft.client_id, [Role.CLIENT])
+            bm_users = await _users_for_roles(session, draft.client_id, [Role.BUSINESS_MANAGER])
+            notified = set()
+            for user in client_users + bm_users:
+                if user.telegram_user_id in notified:
+                    continue
+                notified.add(user.telegram_user_id)
+                await bot.send_message(
+                    chat_id=user.telegram_user_id,
+                    text=(
+                        f'📝 Reminder: draft {draft.draft_code} ({draft.platform}) is waiting for your approval.\n\n'
+                        f'Your team has prepared content that is ready to post — it just needs your final sign-off.\n\n'
+                        f'Check your earlier messages from this bot for the Approve / Request Revision buttons.'
+                    ),
+                )
+
+        # Draft escalation — supervisors alerted when client hasn't reviewed after 72h.
+        for draft in await client_pending_drafts_overdue(session, hours=72):
+            recipients = await _users_for_roles(session, draft.client_id, [Role.SUPERVISOR, Role.BUSINESS_MANAGER])
+            for user in recipients:
+                await bot.send_message(
+                    chat_id=user.telegram_user_id,
+                    text=(
+                        f'⚠️ Escalation: draft {draft.draft_code} ({draft.platform}) has been waiting for client approval for over 72 hours.\n\n'
+                        f'You may want to follow up with the client directly.\n\n'
+                        f'Use /drafts to view the full queue.'
+                    ),
+                )
 
 
 async def job_management_summary(bot: Bot) -> None:
