@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.enums import Role
-from app.models import AuditLog, Client, User
+from app.models import AuditLog, Client, GlobalConfig, User
 from app.security import CryptoService
 from app.services.audit import write_audit
 
@@ -72,6 +72,29 @@ async def get_business_manager(session: AsyncSession, *, client_id: int) -> User
     )
 
 
+async def _get_global_config(session: AsyncSession) -> GlobalConfig:
+    """Return the single GlobalConfig row, creating it if absent."""
+    config = await session.scalar(select(GlobalConfig).where(GlobalConfig.id == 1))
+    if config is None:
+        config = GlobalConfig(id=1, business_manager_telegram_id=None)
+        session.add(config)
+        await session.flush()
+    return config
+
+
+async def get_global_bm_telegram_id(session: AsyncSession) -> int | None:
+    """Return the Telegram user ID of the global business manager, or None."""
+    config = await _get_global_config(session)
+    return config.business_manager_telegram_id
+
+
+async def set_global_bm_telegram_id(session: AsyncSession, telegram_user_id: int) -> None:
+    """Record a new global business manager Telegram ID."""
+    config = await _get_global_config(session)
+    config.business_manager_telegram_id = telegram_user_id
+    await session.flush()
+
+
 async def add_or_update_user(
     session: AsyncSession,
     *,
@@ -87,11 +110,21 @@ async def add_or_update_user(
     allow_business_manager_transfer: bool = False,
 ) -> User:
     if role == Role.BUSINESS_MANAGER:
-        existing_bm = await get_business_manager(session, client_id=client_id)
-        if existing_bm and existing_bm.telegram_user_id != telegram_user_id:
+        global_bm_tg_id = await get_global_bm_telegram_id(session)
+        if global_bm_tg_id and global_bm_tg_id != telegram_user_id:
             if not allow_business_manager_transfer:
-                raise ValueError('A business manager already exists for this group.')
-            existing_bm.role = Role.SUPERVISOR
+                raise ValueError('A business manager already exists globally. Only the current business manager can transfer this role.')
+            # Demote the old BM in every workspace they belong to
+            old_bm_users = await session.scalars(
+                select(User).where(
+                    User.telegram_user_id == global_bm_tg_id,
+                    User.role == Role.BUSINESS_MANAGER,
+                    User.active.is_(True),
+                )
+            )
+            for old_bm in old_bm_users.all():
+                old_bm.role = Role.SUPERVISOR
+        await set_global_bm_telegram_id(session, telegram_user_id)
 
     user = await get_user_by_telegram_id(session, client_id=client_id, telegram_user_id=telegram_user_id)
     if user:

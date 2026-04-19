@@ -4,7 +4,7 @@ from telegram.ext import ContextTypes
 from app.db import SessionLocal
 from app.enums import Role
 from app.services.auth import resolve_actor
-from app.services.users import decrypt_credentials, get_client_by_chat_id
+from app.services.users import decrypt_credentials, get_client_by_chat_id, get_user_by_internal_id
 from app.utils.dates import format_schedule
 from app.utils.telegram import role_main_keyboard
 
@@ -272,10 +272,72 @@ ROLE_HELP = {
 }
 
 TOPIC_GUIDES = {
+    'va_checklist': (
+        'VA Account Setup Checklist\n\n'
+        'Before a VA can use the bot fully, the Business Manager must complete\n'
+        'these steps in the Telegram group.\n\n'
+        '━━━━━━━━━━━━━━━━━━━━━\n'
+        'STEP 1 — Add the VA\n'
+        '━━━━━━━━━━━━━━━━━━━━━\n'
+        '  /adduser [telegram_id] VA [Full Name]\n\n'
+        '  How to get a Telegram ID: ask the VA to message @userinfobot\n\n'
+        '  After running this, the bot shows the VA\'s internal user ID.\n'
+        '  Note it down — you need it for the steps below.\n\n'
+        '  Alternatively, run /groups to see all users and their internal IDs.\n\n'
+        '━━━━━━━━━━━━━━━━━━━━━\n'
+        'STEP 2 — Assign a supervisor  [REQUIRED for timesheets]\n'
+        '━━━━━━━━━━━━━━━━━━━━━\n'
+        '  /set supervisor [va_internal_id] [supervisor_internal_id]\n\n'
+        '  Example: /set supervisor 3 7\n\n'
+        '  Without this, the VA can log hours but CANNOT submit timesheets.\n'
+        '  The supervisor receives private review messages when the VA submits.\n\n'
+        '━━━━━━━━━━━━━━━━━━━━━\n'
+        'STEP 3 — Set hourly rate  [REQUIRED for invoicing]\n'
+        '━━━━━━━━━━━━━━━━━━━━━\n'
+        '  /set rate [va_internal_id] [amount]\n\n'
+        '  Example: /set rate 3 15.50\n\n'
+        '  Without this, invoice calculations will show $0.\n'
+        '  Rates are encrypted and never visible to the VA.\n\n'
+        '━━━━━━━━━━━━━━━━━━━━━\n'
+        'STEP 4 — Ask the VA to run /start in the group\n'
+        '━━━━━━━━━━━━━━━━━━━━━\n'
+        '  The VA types /start in the team Telegram group (not in private chat).\n'
+        '  The bot shows their readiness status and what they can do.\n\n'
+        '━━━━━━━━━━━━━━━━━━━━━\n'
+        'WHAT THE VA CAN DO AT EACH STAGE\n'
+        '━━━━━━━━━━━━━━━━━━━━━\n'
+        'After Step 1 only:\n'
+        '  ✅ Log hours (/hours today 4 note)\n'
+        '  ✅ Check week (/myweek)\n'
+        '  ✅ Create tasks, submit drafts, log connections\n'
+        '  ❌ Submit timesheet (blocked — needs supervisor)\n\n'
+        'After Step 2:\n'
+        '  ✅ Submit timesheets (/submit hours)\n'
+        '  ❌ Invoices (blocked — needs hourly rate)\n\n'
+        'After Step 3:\n'
+        '  ✅ Full invoicing available to managers\n\n'
+        '━━━━━━━━━━━━━━━━━━━━━\n'
+        'IMPORTANT: All bot commands must be used INSIDE the group.\n'
+        'Private messages to the bot will not work for VA actions.\n'
+        '━━━━━━━━━━━━━━━━━━━━━\n\n'
+        'Check current VA status: /groups\n'
+        'Full setup guide: /guide setup'
+    ),
     'hours': (
         'How to Log Hours (VA)\n\n'
-        'Log your work hours each day so your timesheet stays accurate.\n\n'
-        'QUICK COMMAND:\n'
+        '━━━━━━━━━━━━━━━━━━━━━\n'
+        'PREREQUISITES\n'
+        '━━━━━━━━━━━━━━━━━━━━━\n'
+        'Before you can log hours:\n'
+        '  ✅ You must be registered as VA — ask your manager: /adduser\n'
+        '  ✅ You must run this command INSIDE the team group (not private chat)\n\n'
+        'Before you can SUBMIT a timesheet (next step after logging):\n'
+        '  ✅ A supervisor must be assigned to your account\n'
+        '  If not yet assigned, ask your manager: /set supervisor [your_id] [sup_id]\n\n'
+        'Not sure if you are set up? Type /start in the group to check your status.\n\n'
+        '━━━━━━━━━━━━━━━━━━━━━\n'
+        'LOG HOURS\n'
+        '━━━━━━━━━━━━━━━━━━━━━\n'
         '  /hours today 4 LinkedIn outreach and email replies\n'
         '  /hours yesterday 6 Campaign setup and client meeting\n'
         '  /hours 2024-01-15 2 Strategy planning call\n\n'
@@ -289,17 +351,22 @@ TOPIC_GUIDES = {
         '  3. Choose Today or Yesterday\n'
         '  4. Tap the number of hours\n'
         '  5. Send a short work description → Done!\n\n'
-        'EDIT AN ENTRY:\n'
+        '━━━━━━━━━━━━━━━━━━━━━\n'
+        'EDIT AN ENTRY\n'
+        '━━━━━━━━━━━━━━━━━━━━━\n'
         '  /hours edit today 3 Revised note here\n'
         '  /hours edit 2024-01-15 4.5 Updated description\n\n'
         'Manager editing a VA\'s hours:\n'
         '  /hours edit [va_tg_id] [date] [hours] (note)\n\n'
-        'CHECK YOUR WEEK:\n'
+        '━━━━━━━━━━━━━━━━━━━━━\n'
+        'CHECK YOUR WEEK\n'
+        '━━━━━━━━━━━━━━━━━━━━━\n'
         '  /myweek → shows all logged entries for the current week\n\n'
         'TIPS:\n'
         '  • Log every working day — the bot reminds you at 12pm\n'
         '  • Minimum increment: 0.5h\n'
-        '  • Log hours BEFORE submitting your timesheet'
+        '  • Log hours BEFORE submitting your timesheet\n\n'
+        'Full VA checklist: /guide va_checklist'
     ),
     'timesheets': (
         'How Timesheets Work (Full Lifecycle)\n\n'
@@ -540,23 +607,82 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     async with SessionLocal() as session:
         actor = await resolve_actor(session, update)
         role = actor.role if actor else None
+
+        # For VAs, load the full user record to check readiness
+        va_user = None
+        if actor and role == Role.VA and actor.role_user_id:
+            va_user = await get_user_by_internal_id(session, client_id=actor.client_id, user_id=actor.role_user_id)
+
     if role is None:
-        msg = (
-            'Welcome to BeeSmartVA!\n\n'
-            'This group has not been set up yet.\n\n'
-            'To get started:\n'
-            '  1. Run /setup with your workspace details\n'
-            '  2. Tap Setup Guide below for full instructions\n\n'
-            'Already a team member? Ask your Business Manager to add you.'
-        )
+        if actor is None:
+            # Group not set up OR user not in a group (private DM)
+            msg = (
+                'Welcome to BeeSmartVA!\n\n'
+                'This group has not been set up yet, or you are messaging me privately.\n\n'
+                'Important: all commands must be used inside your team\'s Telegram group,\n'
+                'not in a private chat with the bot.\n\n'
+                'To get started in your group:\n'
+                '  1. Add this bot to your Telegram group\n'
+                '  2. Run /setup in the group with your workspace details\n'
+                '  3. Add team members with /adduser\n\n'
+                'Already a team member? Ask your Business Manager to add you\n'
+                'to the group, then run /start inside the group.'
+            )
+        else:
+            # Group exists but user is not registered
+            msg = (
+                'Welcome to BeeSmartVA!\n\n'
+                'You are not registered in this group yet.\n\n'
+                'Ask your Business Manager to add you:\n'
+                '  /adduser [your_telegram_id] VA [Your Name]\n\n'
+                'Your Telegram ID: message @userinfobot to find it.\n\n'
+                'Once added, type /start again here.'
+            )
         await update.message.reply_text(
             msg,
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton('⚙️ Setup Guide — step-by-step instructions', callback_data='ui:guide:setup')],
+                [InlineKeyboardButton('⚙️ Setup Guide', callback_data='ui:guide:setup')],
             ]),
         )
+        return
+
+    name = actor.display_name if actor else ''
+
+    if role == Role.VA and va_user is not None:
+        supervisor_ok = va_user.supervisor_id is not None
+        rate_ok = va_user.hourly_rate_encrypted is not None
+
+        sup_line = '✅ Supervisor assigned' if supervisor_ok else '❌ No supervisor assigned yet'
+        rate_line = '✅ Hourly rate set' if rate_ok else '❌ No hourly rate set yet'
+
+        if supervisor_ok and rate_ok:
+            readiness = 'Your account is fully set up. You can log hours and submit timesheets.'
+            next_steps = '/hours today [h] [note]  → log today\'s hours\n/myweek → check this week\'s hours'
+        else:
+            readiness = 'Your account is not fully set up yet.'
+            actions = []
+            if not supervisor_ok:
+                actions.append(f'• Supervisor: ask your manager to run /set supervisor {va_user.id} [sup_id]')
+            if not rate_ok:
+                actions.append(f'• Rate: ask your manager to run /set rate {va_user.id} [amount]')
+            next_steps = '\n'.join(actions)
+            next_steps += '\n\nYou CAN already log hours. You CANNOT submit timesheets until a supervisor is assigned.'
+
+        await update.message.reply_text(
+            f'Welcome, {name}!\n\n'
+            f'Role: VA\n'
+            f'Internal user ID: {va_user.id}\n\n'
+            '━━━━━━━━━━━━━━━━━━━━━\n'
+            'Account readiness\n'
+            '━━━━━━━━━━━━━━━━━━━━━\n'
+            f'{sup_line}\n'
+            f'{rate_line}\n\n'
+            f'{readiness}\n\n'
+            f'{next_steps}\n\n'
+            'Full guide: /help',
+            reply_markup=role_main_keyboard(role),
+        )
     else:
-        name = actor.display_name if actor else ''
         await update.message.reply_text(
             f'Welcome back, {name}!\n\n'
             f'You are registered as {role.value}.\n'
@@ -601,6 +727,7 @@ async def guide_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
     # No topic — show clickable topic list
     rows = [
+        [InlineKeyboardButton('✅ VA Checklist — steps before a VA can work', callback_data='ui:guide:va_checklist')],
         [InlineKeyboardButton('⏱ Hours — log & edit daily work', callback_data='ui:guide:hours')],
         [InlineKeyboardButton('📋 Timesheets — submit & approval flow', callback_data='ui:guide:timesheets')],
         [InlineKeyboardButton('✅ Tasks — create, complete, flag', callback_data='ui:guide:tasks')],

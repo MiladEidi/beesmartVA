@@ -15,6 +15,7 @@ from app.services.users import (
     add_or_update_user,
     ensure_client,
     get_client_by_chat_id,
+    get_global_bm_telegram_id,
     get_user_by_internal_id,
     get_user_by_telegram_id,
     list_group_users,
@@ -67,6 +68,16 @@ async def setup_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 'For setup help: /guide setup'
             )
             return
+
+        global_bm_tg_id = await get_global_bm_telegram_id(session)
+        if global_bm_tg_id and update.effective_user.id != global_bm_tg_id:
+            await update.message.reply_text(
+                'A business manager is already registered globally.\n\n'
+                'Only the current business manager can set up new workspaces.\n'
+                'Ask them to run /setup in this group.'
+            )
+            return
+
         client = await ensure_client(
             session,
             chat_id=update.effective_chat.id,
@@ -139,14 +150,18 @@ async def adduser_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await update.message.reply_text("Only supervisors or business managers can add users.")
             return
 
-        if role == Role.BUSINESS_MANAGER and actor.role != Role.BUSINESS_MANAGER:
-            await update.message.reply_text(
-                "Only the current business manager can assign or change the business manager."
-            )
-            return
+        if role == Role.BUSINESS_MANAGER:
+            global_bm_tg_id = await get_global_bm_telegram_id(session)
+            # If a global BM exists and it is not the actor, block the request.
+            if global_bm_tg_id and actor.telegram_user_id != global_bm_tg_id:
+                await update.message.reply_text(
+                    "Only the current business manager can assign or change the business manager.\n\n"
+                    "To transfer the role use: /setmanager [telegram_id] [display_name]"
+                )
+                return
 
         try:
-            await add_or_update_user(
+            new_user = await add_or_update_user(
                 session,
                 client_id=actor.client_id,
                 telegram_user_id=tg_id,
@@ -161,16 +176,44 @@ async def adduser_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
         await session.commit()
 
-    await update.message.reply_text(
-        f"User added!\n\n"
-        f"  Name: {display_name}\n"
-        f"  Role: {role.value}\n\n"
-        + ("Next: /set supervisor [va_id] [sup_id] to assign their supervisor\n"
-           "      /set rate [va_id] [amount] to set their hourly rate\n\n"
-           if role == Role.VA else
-           "Ask them to type /start in the group.\n\n")
-        + "Full guide: /guide setup"
-    )
+    if role == Role.VA:
+        supervisor_status = "✅ Supervisor assigned" if new_user.supervisor_id else "❌ No supervisor yet"
+        rate_status = "✅ Hourly rate set" if new_user.hourly_rate_encrypted else "❌ No rate set yet"
+        missing = []
+        if not new_user.supervisor_id:
+            missing.append(f"  /set supervisor {new_user.id} [supervisor_internal_id]")
+        if not new_user.hourly_rate_encrypted:
+            missing.append(f"  /set rate {new_user.id} [amount]")
+
+        checklist_lines = (
+            f"VA added: {display_name}\n"
+            f"  Internal ID:  {new_user.id}\n"
+            f"  Telegram ID:  {tg_id}\n\n"
+            "Setup checklist\n"
+            "──────────────────────────\n"
+            f"✅ Registered as VA\n"
+            f"{supervisor_status}\n"
+            f"{rate_status}\n"
+        )
+        if missing:
+            checklist_lines += "\nActions needed:\n" + "\n".join(missing)
+            checklist_lines += "\n\nUse /groups to see all internal user IDs."
+        checklist_lines += (
+            "\n\n"
+            "The VA can log hours immediately once those commands\n"
+            "are run IN THE GROUP. They cannot submit a timesheet\n"
+            "until a supervisor is assigned.\n\n"
+            "Ask them to type /start in the group to register."
+        )
+        await update.message.reply_text(checklist_lines)
+    else:
+        await update.message.reply_text(
+            f"User added!\n\n"
+            f"  Name: {display_name}\n"
+            f"  Role: {role.value}\n\n"
+            "Ask them to type /start in the group.\n\n"
+            "Full guide: /guide setup"
+        )
 
 
 async def groups_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -377,3 +420,65 @@ async def auditlog_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             return
         text = '\n'.join(f"{item.timestamp:%Y-%m-%d %H:%M} · {item.action} · {item.entity_type}#{item.entity_id}" for item in items)
         await update.message.reply_text(text)
+
+
+async def setmanager_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Transfer the global Business Manager role to another Telegram user."""
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            "Use: /setmanager [telegram_id] [display_name]\n\n"
+            "This transfers the Business Manager role globally across all workspaces.\n"
+            "Only the current business manager can do this.\n\n"
+            "Example:\n"
+            "  /setmanager 123456789 Jane Smith\n\n"
+            "How to find a Telegram ID:\n"
+            "  Ask the user to message @userinfobot — it replies with their ID."
+        )
+        return
+
+    try:
+        new_bm_tg_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("Telegram ID must be a number.")
+        return
+
+    display_name = " ".join(context.args[1:]).strip()
+
+    async with SessionLocal() as session:
+        actor = await resolve_actor(session, update)
+        if not actor or actor.role != Role.BUSINESS_MANAGER:
+            await update.message.reply_text("Only the current business manager can transfer this role.")
+            return
+
+        global_bm_tg_id = await get_global_bm_telegram_id(session)
+        if global_bm_tg_id and actor.telegram_user_id != global_bm_tg_id:
+            await update.message.reply_text("Only the current business manager can transfer this role.")
+            return
+
+        if new_bm_tg_id == actor.telegram_user_id:
+            await update.message.reply_text("You are already the business manager.")
+            return
+
+        try:
+            await add_or_update_user(
+                session,
+                client_id=actor.client_id,
+                telegram_user_id=new_bm_tg_id,
+                display_name=display_name,
+                role=Role.BUSINESS_MANAGER,
+                timezone="UTC",
+                allow_business_manager_transfer=True,
+            )
+        except ValueError as exc:
+            await update.message.reply_text(str(exc))
+            return
+
+        await session.commit()
+
+    await update.message.reply_text(
+        f"Business Manager transferred globally.\n\n"
+        f"  New BM: {display_name} (Telegram ID: {new_bm_tg_id})\n\n"
+        "They are now the business manager in every workspace.\n"
+        "If they are not yet a member of other groups, add them with:\n"
+        "  /adduser [tg_id] BUSINESS_MANAGER [name]"
+    )

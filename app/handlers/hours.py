@@ -32,8 +32,27 @@ async def hours_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
     async with SessionLocal() as session:
         actor = await resolve_actor(session, update)
-        if not actor or actor.role != Role.VA or actor.role_user_id is None:
-            await update.message.reply_text('Only VAs can log hours.')
+        if not actor:
+            await update.message.reply_text(
+                'Hours must be logged in your team group, not in a private chat.\n\n'
+                'Switch to your team\'s Telegram group and run the command there.\n\n'
+                'If this IS the team group and you see this error, the workspace has\n'
+                'not been set up yet. Ask your Business Manager to run /setup.'
+            )
+            return
+        if actor.role_user_id is None:
+            await update.message.reply_text(
+                'You are not registered in this group yet.\n\n'
+                'Ask your Business Manager to add you:\n'
+                '  /adduser [your_telegram_id] VA [Your Name]\n\n'
+                'Your Telegram ID: message @userinfobot to get it.'
+            )
+            return
+        if actor.role != Role.VA:
+            await update.message.reply_text(
+                f'Only VAs can log hours. Your role is {actor.role.value}.\n\n'
+                'If you believe this is incorrect, contact your Business Manager.'
+            )
             return
         user = await get_user(session, user_id=actor.role_user_id, client_id=actor.client_id)
         work_date = parse_date_maybe(context.args[0], user.timezone)
@@ -106,7 +125,16 @@ async def submit_hours_command(update: Update, context: ContextTypes.DEFAULT_TYP
         timesheet, logs = await submit_hours(session, va_id=actor.role_user_id, client_id=actor.client_id, actor_id=actor.role_user_id, today=date.today())
         if not user.supervisor:
             await session.rollback()
-            await update.message.reply_text('⚠️ No supervisor is assigned to your account yet. Contact your Business Manager.')
+            await update.message.reply_text(
+                '⚠️ Cannot submit — no supervisor assigned\n\n'
+                'A supervisor must be linked to your account before you can\n'
+                'submit a timesheet. Your hours are saved and will not be lost.\n\n'
+                'Ask your Business Manager to run this command in the group:\n'
+                f'  /set supervisor {actor.role_user_id} [supervisor_internal_id]\n\n'
+                f'Your internal user ID: {actor.role_user_id}\n'
+                'Share this number with your manager.\n\n'
+                'To see all registered users and their IDs: /groups'
+            )
             return
         await session.commit()
         rate = decrypt_hourly_rate(user)

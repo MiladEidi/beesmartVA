@@ -202,3 +202,12 @@ class AuditLog(Base):
     entity_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     details_json: Mapped[dict] = mapped_column(JSON, default=dict)
     timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class GlobalConfig(Base):
+    """Single-row table (id=1) that holds global settings across all workspaces."""
+
+    __tablename__ = 'global_config'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    business_manager_telegram_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, unique=True)

@@ -16,6 +16,7 @@ from app.handlers.admin import (
     set_supervisor_command,
     set_timezone_command,
     set_va_hours_command,
+    setmanager_command,
     setup_command,
     update_command,
 )
@@ -49,7 +50,7 @@ def build_application() -> Application:
         ('start', start_command), ('help', help_command), ('guide', guide_command), ('howto', howto_command), ('menu', menu_command),
         ('profile', profile_command), ('links', links_command), ('contacts', contacts_command),
         ('prefs', prefs_command), ('schedule', schedule_command), ('credentials', credentials_command),
-        ('setup', setup_command), ('adduser', adduser_command), ('groups', groups_command), ('update', update_command), ('auditlog', auditlog_command),
+        ('setup', setup_command), ('adduser', adduser_command), ('groups', groups_command), ('update', update_command), ('auditlog', auditlog_command), ('setmanager', setmanager_command),
         ('task', task_command), ('tasks', tasks_command), ('done', done_command), ('cantdo', cantdo_command), ('assign', assign_command), ('overdue', overdue_command), ('flagged', flagged_command),
         ('hours', hours_command), ('myweek', myweek_command), ('timesheets', timesheets_command), ('rate', rate_command),
         ('ask', ask_command), ('flag', flag_command), ('confirm', confirm_command), ('weekly', weekly_command), ('monthly', monthly_command), ('stats', stats_command),
