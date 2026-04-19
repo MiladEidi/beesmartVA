@@ -4,6 +4,28 @@ All notable changes to BeeSmartVA are recorded here, newest first.
 
 ---
 
+## 2026-04-19 — VAs can see their own rate; full draft client-review flow
+**Commits:** `3878e60`, `43befc7`
+
+### VAs can now view their own hourly rate
+- `/rate` with no arguments now shows a VA their own hourly rate
+- If no rate is set, they see a clear message with the exact command for their manager to set it
+- VAs still cannot query other VAs' rates — that remains manager-only
+
+### Full two-step draft review flow (supervisor → client → post)
+- Added `CLIENT_PENDING` draft status for drafts awaiting client sign-off
+- After supervisor approves a draft, the client receives the full draft content in private chat with Approve / Request Revision buttons
+- After client approves, VA receives a ready-to-post notification with the `/posted` command
+- Client revision requests send VA a "client requested changes" message with resubmit instructions
+- Graceful fallback if client hasn't started the bot privately yet (supervisor is informed)
+- **Automatic reminders:**
+  - 48h — supervisor reminded if PENDING draft is still unreviewed
+  - 48h — client reminded if CLIENT_PENDING draft is still awaiting their approval
+  - 72h — supervisor escalated if client still hasn't responded
+- `/guide drafts` updated to show all statuses including `CLIENT_PENDING` and the reminder schedule
+
+---
+
 ## 2026-04-19 — Global Business Manager + VA onboarding improvements
 **Commit:** `88cb0d7`
 
