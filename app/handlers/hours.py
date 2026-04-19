@@ -136,9 +136,19 @@ async def submit_hours_command(update: Update, context: ContextTypes.DEFAULT_TYP
                 'To see all registered users and their IDs: /groups'
             )
             return
-        await session.commit()
+
+        # Read all ORM values BEFORE commit — committing expires the instances,
+        # and accessing attributes on expired objects in an async session raises
+        # MissingGreenlet, causing the handler to crash silently.
+        va_name = user.display_name
+        supervisor_tg_id = user.supervisor.telegram_user_id
+        supervisor_name = user.supervisor.display_name
+        timesheet_id = timesheet.id
+        week_start = timesheet.week_start_date
         rate = decrypt_hourly_rate(user)
-        text = render_timesheet_table(user.display_name, timesheet.week_start_date, logs, rate)
+
+        await session.commit()
+        text = render_timesheet_table(va_name, week_start, logs, rate)
 
         # Always confirm to the VA first so they always get a response.
         await update.message.reply_text(
@@ -150,16 +160,16 @@ async def submit_hours_command(update: Update, context: ContextTypes.DEFAULT_TYP
         # never started the bot in private chat — catch that gracefully.
         try:
             await context.bot.send_message(
-                chat_id=user.supervisor.telegram_user_id,
+                chat_id=supervisor_tg_id,
                 text='📋 A timesheet is ready for your review.\n\n' + text,
-                reply_markup=timesheet_supervisor_keyboard(timesheet.id),
+                reply_markup=timesheet_supervisor_keyboard(timesheet_id),
             )
         except Exception:
             # Supervisor notification failed — warn the VA so they can follow up manually.
             await update.message.reply_text(
                 '⚠️ Could not notify your supervisor automatically.\n\n'
                 'This usually means they have not started the bot in private chat yet.\n\n'
-                f'Ask {user.supervisor.display_name} to open a private chat with this bot '
+                f'Ask {supervisor_name} to open a private chat with this bot '
                 'and send /start — then resubmit your timesheet.'
             )
 

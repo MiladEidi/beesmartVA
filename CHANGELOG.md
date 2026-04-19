@@ -4,6 +4,14 @@ All notable changes to BeeSmartVA are recorded here, newest first.
 
 ---
 
+## 2026-04-19 — Fix /submit hours silent crash (no response to VA)
+
+### Fix `submit_hours_command` silent crash after session commit
+- `session.commit()` expires all ORM instances; accessing `user.display_name`, `user.supervisor.telegram_user_id`, `timesheet.week_start_date`, etc. after commit raised `MissingGreenlet` in the async session, crashing the handler with no reply to the VA
+- Fixed by reading all required ORM attribute values into local variables **before** calling `session.commit()`
+
+---
+
 ## 2026-04-19 — Fix /rate to use internal va_user_id instead of Telegram ID
 
 ### Fix `/rate` VA lookup for managers
