@@ -184,10 +184,23 @@ async def rate_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         if not actor or actor.role_user_id is None:
             await update.message.reply_text('You are not registered in this group.')
             return
-        if not has_manager_access(actor.role):
-            await update.message.reply_text('Rate information is confidential and only visible to supervisors and business managers.')
+        # VAs can only see their own rate.
+        if actor.role == Role.VA:
+            user = await get_user(session, user_id=actor.role_user_id, client_id=actor.client_id)
+            rate = decrypt_hourly_rate(user)
+            if rate:
+                await update.message.reply_text(f'💰 Your hourly rate: ${rate}/hr')
+            else:
+                await update.message.reply_text(
+                    '💰 Your hourly rate has not been set yet.\n\n'
+                    'Ask your Business Manager to run:\n'
+                    f'  /set rate {actor.role_user_id} [amount]'
+                )
             return
-        # Managers: show rate for a specific VA by Telegram ID arg, or list all VAs
+        if not has_manager_access(actor.role):
+            await update.message.reply_text('Rate information is only available to VAs (own rate), supervisors, and business managers.')
+            return
+        # Managers: show rate for a specific VA by Telegram ID arg.
         if context.args:
             try:
                 va_tg_id = int(context.args[0])
