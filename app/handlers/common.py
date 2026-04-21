@@ -281,23 +281,23 @@ TOPIC_GUIDES = {
         '━━━━━━━━━━━━━━━━━━━━━\n'
         '  /adduser [telegram_id] VA [Full Name]\n\n'
         '  How to get a Telegram ID: ask the VA to message @userinfobot\n\n'
-        '  After running this, the bot shows the VA\'s internal user ID.\n'
+        '  After running this, the bot shows the VA\'s user ID.\n'
         '  Note it down — you need it for the steps below.\n\n'
-        '  Alternatively, run /groups to see all users and their internal IDs.\n\n'
+        '  Alternatively, run /groups to see all users and their IDs.\n\n'
         '━━━━━━━━━━━━━━━━━━━━━\n'
         'STEP 2 — Assign a supervisor  [REQUIRED for timesheets]\n'
         '━━━━━━━━━━━━━━━━━━━━━\n'
-        '  /set supervisor [va_internal_id] [supervisor_internal_id]\n\n'
-        '  Example: /set supervisor 3 7\n\n'
+        '  /set supervisor [va_user_id] [supervisor_user_id]\n\n'
+        '  Example: /set supervisor 2847 5193\n\n'
         '  Without this, the VA can log hours but CANNOT submit timesheets.\n'
         '  The supervisor receives private review messages when the VA submits.\n\n'
         '━━━━━━━━━━━━━━━━━━━━━\n'
         'STEP 3 — Set hourly rate  [REQUIRED for invoicing]\n'
         '━━━━━━━━━━━━━━━━━━━━━\n'
-        '  /set rate [va_internal_id] [amount]\n\n'
-        '  Example: /set rate 3 15.50\n\n'
+        '  /set rate [va_user_id] [amount]\n\n'
+        '  Example: /set rate 2847 15.50\n\n'
         '  Without this, invoice calculations will show $0.\n'
-        '  Rates are encrypted and never visible to the VA.\n\n'
+        '  Rates are encrypted. VAs can only see their own rate; clients cannot see rates at all.\n\n'
         '━━━━━━━━━━━━━━━━━━━━━\n'
         'STEP 4 — Ask the VA to run /start in the group\n'
         '━━━━━━━━━━━━━━━━━━━━━\n'
@@ -667,16 +667,16 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             readiness = 'Your account is not fully set up yet.'
             actions = []
             if not supervisor_ok:
-                actions.append(f'• Supervisor: ask your manager to run /set supervisor {va_user.id} [sup_id]')
+                actions.append(f'• Supervisor: ask your manager to run /set supervisor {va_user.display_id or va_user.id} [sup_id]')
             if not rate_ok:
-                actions.append(f'• Rate: ask your manager to run /set rate {va_user.id} [amount]')
+                actions.append(f'• Rate: ask your manager to run /set rate {va_user.display_id or va_user.id} [amount]')
             next_steps = '\n'.join(actions)
             next_steps += '\n\nYou CAN already log hours. You CANNOT submit timesheets until a supervisor is assigned.'
 
         await update.message.reply_text(
             f'Welcome, {name}!\n\n'
             f'Role: VA\n'
-            f'Internal user ID: {va_user.id}\n\n'
+            f'User ID: {va_user.display_id or va_user.id}\n\n'
             '━━━━━━━━━━━━━━━━━━━━━\n'
             'Account readiness\n'
             '━━━━━━━━━━━━━━━━━━━━━\n'

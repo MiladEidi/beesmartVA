@@ -16,6 +16,7 @@ from app.services.users import (
     ensure_client,
     get_client_by_chat_id,
     get_global_bm_telegram_id,
+    get_user_by_display_id,
     get_user_by_internal_id,
     get_user_by_telegram_id,
     list_group_users,
@@ -180,14 +181,15 @@ async def adduser_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         supervisor_status = "✅ Supervisor assigned" if new_user.supervisor_id else "❌ No supervisor yet"
         rate_status = "✅ Hourly rate set" if new_user.hourly_rate_encrypted else "❌ No rate set yet"
         missing = []
+        uid = new_user.display_id or new_user.id
         if not new_user.supervisor_id:
-            missing.append(f"  /set supervisor {new_user.id} [supervisor_internal_id]")
+            missing.append(f"  /set supervisor {uid} [supervisor_id]")
         if not new_user.hourly_rate_encrypted:
-            missing.append(f"  /set rate {new_user.id} [amount]")
+            missing.append(f"  /set rate {uid} [amount]")
 
         checklist_lines = (
             f"VA added: {display_name}\n"
-            f"  Internal ID:  {new_user.id}\n"
+            f"  User ID:  {uid}\n"
             f"  Telegram ID:  {tg_id}\n\n"
             "Setup checklist\n"
             "──────────────────────────\n"
@@ -197,7 +199,7 @@ async def adduser_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         if missing:
             checklist_lines += "\nActions needed:\n" + "\n".join(missing)
-            checklist_lines += "\n\nUse /groups to see all internal user IDs."
+            checklist_lines += "\n\nUse /groups to see all user IDs."
         checklist_lines += (
             "\n\n"
             "The VA can log hours immediately once those commands\n"
@@ -232,7 +234,7 @@ async def groups_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             "",
         ]
         for user in users:
-            lines.append(f"{user.id} · {user.display_name} · {user.role.value}")
+            lines.append(f"{user.display_id or user.id} · {user.display_name} · {user.role.value}")
 
         await update.message.reply_text("\n".join(lines))
 
@@ -241,16 +243,16 @@ async def set_supervisor_command(update: Update, context: ContextTypes.DEFAULT_T
     if len(context.args) < 2:
         await update.message.reply_text(
             "Use: /set supervisor [va_user_id] [supervisor_user_id]\n\n"
-            "Both IDs are internal user IDs (shown in /groups).\n"
-            "Example: /set supervisor 3 7\n\n"
+            "Both IDs are shown in /groups.\n"
+            "Example: /set supervisor 2847 5193\n\n"
             "Or use the guided flow: /menu → Set supervisor\n"
             "Full guide: /guide setup"
         )
         return
 
     try:
-        va_id = int(context.args[0])
-        supervisor_id = int(context.args[1])
+        va_display_id = int(context.args[0])
+        sup_display_id = int(context.args[1])
     except ValueError:
         await update.message.reply_text("User IDs must be numbers.")
         return
@@ -261,11 +263,21 @@ async def set_supervisor_command(update: Update, context: ContextTypes.DEFAULT_T
             await update.message.reply_text("Only supervisors or business managers can assign supervisors.")
             return
 
+        va_user = await get_user_by_display_id(session, client_id=actor.client_id, display_id=va_display_id)
+        if not va_user or va_user.role != Role.VA:
+            await update.message.reply_text("VA not found.")
+            return
+
+        sup_user = await get_user_by_display_id(session, client_id=actor.client_id, display_id=sup_display_id)
+        if not sup_user:
+            await update.message.reply_text("Supervisor not found.")
+            return
+
         va = await set_supervisor(
             session,
             client_id=actor.client_id,
-            va_user_id=va_id,
-            supervisor_user_id=supervisor_id,
+            va_user_id=va_user.id,
+            supervisor_user_id=sup_user.id,
             actor_id=actor.role_user_id,
         )
         if not va:
@@ -275,7 +287,7 @@ async def set_supervisor_command(update: Update, context: ContextTypes.DEFAULT_T
         await session.commit()
 
     await update.message.reply_text(
-        f"{va.display_name} is now assigned to supervisor user #{supervisor_id}."
+        f"{va.display_name} is now assigned to supervisor {sup_user.display_name} (#{sup_display_id})."
     )
 
 
@@ -285,7 +297,7 @@ async def set_rate_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             "Use: /set rate [va_user_id] [amount]\n"
             "  or /set rate tg:[va_telegram_id] [amount]\n\n"
             "Examples:\n"
-            "  /set rate 3 15.50       (internal user ID from /groups)\n"
+            "  /set rate 2847 15.50    (user ID from /groups)\n"
             "  /set rate tg:123456789 12  (Telegram user ID)\n\n"
             "Or use the guided flow: /menu → Set rate\n"
             "Full invoicing guide: /guide invoicing"
@@ -309,7 +321,7 @@ async def set_rate_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         if target.startswith('tg:'):
             va = await get_user_by_telegram_id(session, client_id=actor.client_id, telegram_user_id=int(target[3:]))
         else:
-            va = await get_user_by_internal_id(session, client_id=actor.client_id, user_id=int(target))
+            va = await get_user_by_display_id(session, client_id=actor.client_id, display_id=int(target))
         if not va or va.role != Role.VA:
             await update.message.reply_text("VA not found.")
             return

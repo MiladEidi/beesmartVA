@@ -14,7 +14,7 @@ from app.services.auth import resolve_actor
 from app.services.hours import edit_hours, get_user, log_hours, logs_for_week, pending_timesheets, submit_hours
 from app.services.invoices import invoice_summary, mark_invoiced
 from app.services.permissions import has_manager_access
-from app.services.users import decrypt_hourly_rate
+from app.services.users import decrypt_hourly_rate, get_user_by_display_id
 from app.utils.dates import current_week_range, parse_date_maybe
 from app.utils.formatters import render_myweek, render_timesheet_table
 from app.utils.telegram import timesheet_supervisor_keyboard
@@ -130,8 +130,8 @@ async def submit_hours_command(update: Update, context: ContextTypes.DEFAULT_TYP
                 'A supervisor must be linked to your account before you can\n'
                 'submit a timesheet. Your hours are saved and will not be lost.\n\n'
                 'Ask your Business Manager to run this command in the group:\n'
-                f'  /set supervisor {actor.role_user_id} [supervisor_internal_id]\n\n'
-                f'Your internal user ID: {actor.role_user_id}\n'
+                f'  /set supervisor {user.display_id or actor.role_user_id} [supervisor_user_id]\n\n'
+                f'Your user ID: {user.display_id or actor.role_user_id}\n'
                 'Share this number with your manager.\n\n'
                 'To see all registered users and their IDs: /groups'
             )
@@ -204,7 +204,7 @@ async def rate_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 await update.message.reply_text(
                     '💰 Your hourly rate has not been set yet.\n\n'
                     'Ask your Business Manager to run:\n'
-                    f'  /set rate {actor.role_user_id} [amount]'
+                    f'  /set rate {user.display_id or actor.role_user_id} [amount]'
                 )
             return
         if not has_manager_access(actor.role):
@@ -213,11 +213,13 @@ async def rate_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         # Managers: show rate for a specific VA by internal user ID arg.
         if context.args:
             try:
-                va_user_id = int(context.args[0])
+                va_display_id = int(context.args[0])
             except ValueError:
                 await update.message.reply_text('Use: /rate [va_user_id]')
                 return
-            va = await session.scalar(select(User).where(User.client_id == actor.client_id, User.id == va_user_id, User.role == Role.VA))
+            va = await get_user_by_display_id(session, client_id=actor.client_id, display_id=va_display_id)
+            if va and va.role != Role.VA:
+                va = None
             if not va:
                 await update.message.reply_text('VA not found.')
                 return

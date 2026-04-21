@@ -4,6 +4,39 @@ All notable changes to BeeSmartVA are recorded here, newest first.
 
 ---
 
+## 2026-04-21 — Non-informative user IDs (display_id) + rate visibility audit
+
+### Random 4-digit display IDs replace sequential user numbers
+Previously every user was shown their sequential database primary key (1, 2, 3 …), which revealed exactly how many users were in the system. A user added as the third person would always see `#3`.
+
+**What changed:**
+- Added a `display_id` field to the `User` model — a randomly generated 4-digit number (1000–9999), unique across all users
+- New users are assigned a `display_id` at creation time; the actual sequential DB primary key is never exposed to end users
+- On startup, any existing users without a `display_id` are automatically backfilled with random values (handled by `init_db()` via a safe `ALTER TABLE … ADD COLUMN` + `UPDATE` loop)
+- All user-facing displays updated: `/groups` listing, user-added confirmation, VA welcome message (`/start`), setup checklist, and inline user-picker menus
+- All user-typed commands updated to accept `display_id` as input: `/set supervisor`, `/set rate`, `/assign`, `/rate [va_id]`
+- Internal DB relationships and auth flows are unchanged — they continue to use the actual primary key
+
+**Files changed:** `app/models.py`, `app/db.py`, `app/services/users.py`, `app/handlers/admin.py`, `app/handlers/ui.py`, `app/handlers/common.py`, `app/handlers/tasks.py`, `app/handlers/hours.py`
+
+### Rate visibility audit — confirmed and documented
+Audited all paths where hourly rates could be exposed. The system was already correctly restricting access:
+
+| Role | What they can see |
+|------|------------------|
+| VA | Their **own** rate only (via `/rate`) |
+| Client | **Nothing** — blocked at command level and timesheet approvals pass `rate=None` to the formatter |
+| Supervisor / BM | Any VA's rate via `/rate [va_id]` |
+
+The enforcement is in three places:
+- `hours.py` — VA branch returns early with own rate; `has_manager_access()` blocks the CLIENT role with an explicit message
+- `callbacks.py` — when supervisor approves a timesheet, the client's copy is rendered with `rate=None` so the `💰 Rate:` and `💵 Estimated:` lines never appear
+- `reports.py` — no rate data is included in weekly/monthly reports visible to all roles
+
+**Fix:** The setup guide (`/guide setup`) contained the incorrect text "Rates are encrypted and never visible to the VA." Updated to accurately state that VAs can see their own rate but clients cannot see rates at all.
+
+---
+
 ## 2026-04-19 — Fix "Actor not registered" error on inline button callbacks in private chat
 
 ### Fix timesheet/draft/score inline buttons failing in private chat

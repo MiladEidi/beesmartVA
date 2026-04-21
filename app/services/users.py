@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 from datetime import date
 from decimal import Decimal
 from typing import Any
@@ -60,6 +61,18 @@ async def get_user_by_name(session: AsyncSession, *, client_id: int, display_nam
 
 async def get_user_by_internal_id(session: AsyncSession, *, client_id: int, user_id: int) -> User | None:
     return await session.scalar(select(User).where(User.client_id == client_id, User.id == user_id, User.active.is_(True)))
+
+
+async def get_user_by_display_id(session: AsyncSession, *, client_id: int, display_id: int) -> User | None:
+    return await session.scalar(select(User).where(User.client_id == client_id, User.display_id == display_id, User.active.is_(True)))
+
+
+async def _generate_unique_display_id(session: AsyncSession) -> int:
+    while True:
+        candidate = random.randint(1000, 9999)
+        existing = await session.scalar(select(User).where(User.display_id == candidate))
+        if not existing:
+            return candidate
 
 
 async def get_business_manager(session: AsyncSession, *, client_id: int) -> User | None:
@@ -145,6 +158,7 @@ async def add_or_update_user(
         return user
 
     user = User(
+        display_id=await _generate_unique_display_id(session),
         telegram_user_id=telegram_user_id,
         display_name=display_name,
         role=role,

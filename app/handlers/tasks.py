@@ -6,7 +6,7 @@ from app.enums import FlagReason, Role
 from app.services.auth import resolve_actor
 from app.services.permissions import has_manager_access
 from app.services.tasks import assign_task, complete_task, create_task, flag_task, flagged_tasks, list_open_tasks, overdue_tasks, user_map
-from app.services.users import get_user_by_internal_id
+from app.services.users import get_user_by_display_id
 from app.utils.formatters import render_task_list
 
 
@@ -81,17 +81,17 @@ async def assign_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if len(context.args) < 2 or not context.args[0].isdigit() or not context.args[1].isdigit():
         await update.message.reply_text('Use: /assign [task#] [va_user_id]')
         return
-    task_id = int(context.args[0]); va_user_id = int(context.args[1])
+    task_id = int(context.args[0]); va_display_id = int(context.args[1])
     async with SessionLocal() as session:
         actor = await resolve_actor(session, update)
         if not actor or not has_manager_access(actor.role) or actor.role_user_id is None:
             await update.message.reply_text('Only supervisors or business managers can assign tasks.')
             return
-        user = await get_user_by_internal_id(session, client_id=actor.client_id, user_id=va_user_id)
+        user = await get_user_by_display_id(session, client_id=actor.client_id, display_id=va_display_id)
         if not user:
             await update.message.reply_text('User not found.')
             return
-        task = await assign_task(session, client_id=actor.client_id, task_id=task_id, actor_id=actor.role_user_id, assigned_to=va_user_id)
+        task = await assign_task(session, client_id=actor.client_id, task_id=task_id, actor_id=actor.role_user_id, assigned_to=user.id)
         if not task:
             await update.message.reply_text('Task not found.')
             return

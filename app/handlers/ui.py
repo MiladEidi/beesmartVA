@@ -66,7 +66,7 @@ def _menu_keyboard(role: Role | None) -> InlineKeyboardMarkup:
 
 
 def _user_button_rows(users: list[User], prefix: str, label_fn=None) -> list[list[InlineKeyboardButton]]:
-    label_fn = label_fn or (lambda u: f"{u.display_name} · #{u.id}")
+    label_fn = label_fn or (lambda u: f"{u.display_name} · #{u.display_id or u.id}")
     rows = []
     chunk = []
     for user in users:
@@ -443,8 +443,9 @@ async def ui_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             va = await set_supervisor(session, client_id=actor.client_id, va_user_id=va_id, supervisor_user_id=sup_id, actor_id=actor.role_user_id)
             await session.commit()
             context.user_data.pop(FLOW_KEY, None)
+            sup_display = (va.supervisor.display_id or va.supervisor.id) if va and va.supervisor else sup_id
             await query.edit_message_text(
-                f'✅ {va.display_name if va else "VA"} now reports to user #{sup_id}.',
+                f'✅ {va.display_name if va else "VA"} now reports to user #{sup_display}.',
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton('👥 Set another supervisor', callback_data='ui:setsupervisor:start')],
                     [_back_row()[0]],
@@ -844,7 +845,7 @@ async def flow_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                     f'🎉 User added successfully!\n\n'
                     f'👤 Name:     {user.display_name}\n'
                     f'🏷 Role:     {user.role.value}\n'
-                    f'🆔 User ID:  #{user.id}\n\n'
+                    f'🆔 User ID:  #{user.display_id or user.id}\n\n'
                     f'{extra}',
                     reply_markup=InlineKeyboardMarkup(next_rows),
                 )

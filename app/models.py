@@ -46,6 +46,7 @@ class User(Base):
     __table_args__ = (UniqueConstraint('telegram_user_id', 'client_id', name='uq_tg_user_client'),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    display_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, unique=True, index=True)
     telegram_user_id: Mapped[int] = mapped_column(index=True)
     display_name: Mapped[str] = mapped_column(String(150))
     role: Mapped[Role] = mapped_column(Enum(Role), index=True)
