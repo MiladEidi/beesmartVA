@@ -4,6 +4,24 @@ All notable changes to BeeSmartVA are recorded here, newest first.
 
 ---
 
+## 2026-04-21 — Rate setting moved to private chat (confidentiality)
+
+VA hourly rates are now set exclusively in a private chat with the bot. Previously, running `/set rate` or using the Set Rate menu in a group chat exposed the VA's salary to every group member.
+
+### Changes
+- **`/set rate` in a group** → bot deletes the command message, sends the supervisor a private message with instructions, and replies in the group with a short redirect notice — no rate is ever visible in the group
+- **`/set rate` in private chat** → works fully via a new `resolve_actor_private` resolver that identifies the supervisor's workspace by their Telegram ID instead of the group chat ID
+- **`/menu → Set Rate` in a group** → redirected with a message explaining to use private chat
+- **`/menu → Set Rate` in private chat** → full guided flow (VA picker → amount → confirmation) works privately
+- **New helpers added:**
+  - `get_manager_workspaces` (`app/services/users.py`) — returns all supervisor/manager memberships for a Telegram user ID
+  - `resolve_actor_private` (`app/services/auth.py`) — resolves actor context in a private chat
+- **Help text** updated throughout to note that rate setting must be done in private chat
+
+**Files changed:** `app/services/auth.py`, `app/services/users.py`, `app/handlers/admin.py`, `app/handlers/ui.py`, `app/handlers/common.py`
+
+---
+
 ## 2026-04-21 — Rename BUSINESS_MANAGER role to MANAGER
 
 The `BUSINESS_MANAGER` role has been renamed to `MANAGER` across the entire codebase for clarity and brevity.
