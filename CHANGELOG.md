@@ -4,6 +4,34 @@ All notable changes to BeeSmartVA are recorded here, newest first.
 
 ---
 
+## 2026-04-21 — Comprehensive UX polish pass
+
+A systematic audit of all handler files identified and fixed rough edges across the entire bot UX.
+
+### Crash-safety improvements
+- **Scheduler** (`scheduler.py`): Added `_safe_send()` helper that wraps every `bot.send_message()` in a try/except with a `logger.warning`. Wrapped both `job_daily` and `job_management_summary` in outer try/except so a single failing job never kills the scheduler loop. Added timezone validation with `logger.warning` + `continue` for malformed client timezones.
+- **Quick-action flows** (`ui.py`): Wrapped `send_message` calls in quickask, quickflag, and quickconfirm flows with try/except. If the supervisor hasn't started a private chat with the bot, the VA now receives a clear explanation instead of a silent failure.
+- **Checkins** (`checkins.py`): Same try/except treatment for `/ask`, `/flag`, `/confirm`, and `/notify client` supervisor/client sends.
+
+### Input validation
+- **`/hours`** (`hours.py`): Added `try/except` around `Decimal(hours)` parse, `hours <= 0` guard, and `hours > 24` guard. Both VA and manager paths of `/hours edit` have the same guards.
+- **Set-rate flow** (`ui.py`): Added `amount <= 0` guard after the `InvalidOperation` catch so rates of zero or negative are rejected immediately.
+
+### Empty-state guards
+- **Team task menu**: Shows "No VAs are registered yet." instead of an empty inline keyboard when no VAs exist.
+- **Set-supervisor flow step 1**: Shows a clear message when no VAs exist yet.
+- **Set-supervisor flow step 2**: Shows a clear message when no supervisors exist yet.
+- **Set-rate flow**: Shows a clear message when no VAs exist yet.
+
+### Help text and ID consistency
+- All help text updated to use `[va_user_id]`/`[supervisor_user_id]` (display IDs from `/groups`) instead of `[va_tg_id]` (Telegram user IDs).
+- VA welcome, "no supervisor" error, and "no rate" error messages all show the VA's display ID with a "(IDs from /groups)" note.
+- Task menu: fixed raw DB id display — now shows VA display name instead of `VA #123`.
+
+**Files changed:** `app/handlers/ui.py`, `app/handlers/hours.py`, `app/handlers/checkins.py`, `app/services/scheduler.py`, `app/handlers/common.py`, `app/handlers/tasks.py`
+
+---
+
 ## 2026-04-21 — Non-informative user IDs (display_id) + rate visibility audit
 
 ### Random 4-digit display IDs replace sequential user numbers

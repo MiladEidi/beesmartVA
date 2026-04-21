@@ -22,11 +22,23 @@ async def _notify_supervisor(update: Update, context: ContextTypes.DEFAULT_TYPE,
             return
         va = await get_user_by_internal_id(session, client_id=actor.client_id, user_id=actor.role_user_id)
         if not va or not va.supervisor:
-            await update.message.reply_text('No supervisor is assigned to this VA yet.')
+            await update.message.reply_text(
+                'No supervisor is assigned to your account yet.\n\n'
+                'Ask your Business Manager to run:\n'
+                f'  /set supervisor [your_user_id] [supervisor_user_id]\n\n'
+                'Your user ID is shown when you run /start in the group.'
+            )
             return
         text = f'{prefix}\n\nFrom: {va.display_name}\nGroup: {update.effective_chat.title or update.effective_chat.id}\n\n{message}'
-        await context.bot.send_message(chat_id=va.supervisor.telegram_user_id, text=text)
-        await update.message.reply_text('Sent.')
+        try:
+            await context.bot.send_message(chat_id=va.supervisor.telegram_user_id, text=text)
+            await update.message.reply_text('✅ Message sent to your supervisor.')
+        except Exception:
+            await update.message.reply_text(
+                '⚠️ Could not reach your supervisor.\n\n'
+                'They may not have started a private chat with this bot yet.\n'
+                f'Ask {va.supervisor.display_name} to open a private chat with this bot and send /start.'
+            )
 
 
 async def ask_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -66,10 +78,21 @@ async def notify_client_command(update: Update, context: ContextTypes.DEFAULT_TY
         from app.models import User
         client_user = await session.scalar(select(User).where(User.client_id == actor.client_id, User.role == Role.CLIENT))
         if client_user:
-            await context.bot.send_message(chat_id=client_user.telegram_user_id, text=message)
-            await update.message.reply_text('Client notified.')
+            try:
+                await context.bot.send_message(chat_id=client_user.telegram_user_id, text=message)
+                await update.message.reply_text('✅ Message sent to the client.')
+            except Exception:
+                await update.message.reply_text(
+                    '⚠️ Could not reach the client.\n\n'
+                    'They may not have started a private chat with this bot yet.\n'
+                    f'Ask {client_user.display_name} to open a private chat with this bot and send /start.'
+                )
         else:
-            await update.message.reply_text('No client user is registered in this group yet.')
+            await update.message.reply_text(
+                'No client user is registered in this group yet.\n\n'
+                'Ask your Business Manager to add one with:\n'
+                '  /adduser [telegram_id] CLIENT [Name]'
+            )
 
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

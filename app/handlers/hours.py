@@ -56,11 +56,21 @@ async def hours_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             return
         user = await get_user(session, user_id=actor.role_user_id, client_id=actor.client_id)
         work_date = parse_date_maybe(context.args[0], user.timezone)
-        hours = Decimal(context.args[1])
+        try:
+            hours = Decimal(context.args[1])
+        except Exception:
+            await update.message.reply_text('Hours must be a number, e.g. 4 or 2.5')
+            return
+        if hours <= 0:
+            await update.message.reply_text('Hours must be greater than zero.')
+            return
+        if hours > 24:
+            await update.message.reply_text('Hours cannot exceed 24 in a single entry.')
+            return
         note = ' '.join(context.args[2:]).strip() or None
         await log_hours(session, va_id=actor.role_user_id, client_id=actor.client_id, work_date=work_date, hours=hours, note=note)
         await session.commit()
-        await update.message.reply_text(f'Logged {hours}h for {work_date.isoformat()}.')
+        await update.message.reply_text(f'✅ Logged {hours}h for {work_date.isoformat()}.')
 
 
 async def _hours_edit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -75,11 +85,18 @@ async def _hours_edit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 return
             user = await get_user(session, user_id=actor.role_user_id, client_id=actor.client_id)
             work_date = parse_date_maybe(context.args[1], user.timezone)
-            hours = Decimal(context.args[2])
+            try:
+                hours = Decimal(context.args[2])
+            except Exception:
+                await update.message.reply_text('Hours must be a number, e.g. 4 or 2.5')
+                return
+            if hours <= 0:
+                await update.message.reply_text('Hours must be greater than zero.')
+                return
             note = ' '.join(context.args[3:]).strip() or None
             await edit_hours(session, va_id=actor.role_user_id, client_id=actor.client_id, work_date=work_date, hours=hours, note=note, actor_id=actor.role_user_id)
             await session.commit()
-            await update.message.reply_text('Hour entry updated.')
+            await update.message.reply_text('✅ Hour entry updated.')
             return
         if has_manager_access(actor.role):
             if len(context.args) < 4:
@@ -91,7 +108,14 @@ async def _hours_edit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 await update.message.reply_text('VA not found.')
                 return
             work_date = parse_date_maybe(context.args[2], va.timezone)
-            hours = Decimal(context.args[3])
+            try:
+                hours = Decimal(context.args[3])
+            except Exception:
+                await update.message.reply_text('Hours must be a number, e.g. 4 or 2.5')
+                return
+            if hours <= 0:
+                await update.message.reply_text('Hours must be greater than zero.')
+                return
             note = ' '.join(context.args[4:]).strip() or None
             await edit_hours(session, va_id=va.id, client_id=actor.client_id, work_date=work_date, hours=hours, note=note, actor_id=actor.role_user_id)
             await session.commit()
@@ -127,10 +151,10 @@ async def submit_hours_command(update: Update, context: ContextTypes.DEFAULT_TYP
             await session.rollback()
             await update.message.reply_text(
                 '⚠️ Cannot submit — no supervisor assigned\n\n'
-                'A supervisor must be linked to your account before you can\n'
+                'A supervisor must be assigned to your account before you can\n'
                 'submit a timesheet. Your hours are saved and will not be lost.\n\n'
                 'Ask your Business Manager to run this command in the group:\n'
-                f'  /set supervisor {user.display_id or actor.role_user_id} [supervisor_user_id]\n\n'
+                f'  /set supervisor {user.display_id or actor.role_user_id} [supervisor_user_id]  (IDs from /groups)\n\n'
                 f'Your user ID: {user.display_id or actor.role_user_id}\n'
                 'Share this number with your manager.\n\n'
                 'To see all registered users and their IDs: /groups'

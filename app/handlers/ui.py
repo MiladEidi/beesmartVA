@@ -411,6 +411,12 @@ async def ui_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 await query.edit_message_text('Only supervisors or business managers can assign supervisors.')
                 return
             vas = await get_role_users(session, client_id=actor.client_id, role=Role.VA)
+            if not vas:
+                await query.edit_message_text(
+                    'No VAs are registered yet.\n\nAdd one first with /adduser or /menu → Add User.',
+                    reply_markup=InlineKeyboardMarkup([[_back_row()[0]]]),
+                )
+                return
             context.user_data[FLOW_KEY] = {'type': 'setsupervisor'}
             await query.edit_message_text(
                 'Step 1 of 2 — Assign Supervisor\n\n'
@@ -427,6 +433,13 @@ async def ui_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             sups = await get_role_users(session, client_id=actor.client_id, role=Role.SUPERVISOR)
             bms = await get_role_users(session, client_id=actor.client_id, role=Role.BUSINESS_MANAGER)
             users = sups + [u for u in bms if u.id not in {x.id for x in sups}]
+            if not users:
+                context.user_data.pop(FLOW_KEY, None)
+                await query.edit_message_text(
+                    'No supervisors or business managers are registered yet.\n\nAdd one with /adduser or /menu → Add User.',
+                    reply_markup=InlineKeyboardMarkup([[_back_row()[0]]]),
+                )
+                return
             await query.edit_message_text(
                 'Step 2 of 2 — Assign Supervisor\n\n'
                 'Choose the supervisor or business manager for this VA:',
@@ -457,6 +470,12 @@ async def ui_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 await query.edit_message_text('Only supervisors or business managers can set rates.')
                 return
             vas = await get_role_users(session, client_id=actor.client_id, role=Role.VA)
+            if not vas:
+                await query.edit_message_text(
+                    'No VAs are registered yet.\n\nAdd one first with /adduser or /menu → Add User.',
+                    reply_markup=InlineKeyboardMarkup([[_back_row()[0]]]),
+                )
+                return
             context.user_data[FLOW_KEY] = {'type': 'setrate'}
             await query.edit_message_text(
                 'Set Hourly Rate\n\n'
@@ -684,15 +703,22 @@ async def ui_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             if not task:
                 await query.edit_message_text('Task not found.')
                 return
-            assigned_label = f'VA #{task.assigned_to}' if task.assigned_to else 'Unassigned'
+            vas = await get_role_users(session, client_id=actor.client_id, role=Role.VA)
+            va_names = {va.id: va.display_name for va in vas}
+            assigned_label = va_names.get(task.assigned_to, 'Unassigned') if task.assigned_to else 'Unassigned'
             text = (
                 f'📋 Task #{task.id}\n\n'
                 f'{task.description}\n\n'
                 f'Assigned to: {assigned_label}\n'
                 f'Status: {task.status.value}\n\n'
-                'Tap a VA below to assign this task:'
+                'Tap a VA below to (re)assign this task:'
             )
-            vas = await get_role_users(session, client_id=actor.client_id, role=Role.VA)
+            if not vas:
+                await query.edit_message_text(
+                    f'📋 Task #{task.id}\n\n{task.description}\n\nNo VAs are registered yet. Add one with /adduser.',
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('◀ Back', callback_data='ui:teamtasks:view')]]),
+                )
+                return
             rows = []
             for va in vas[:8]:
                 rows.append([InlineKeyboardButton(f'🙋 Assign to {va.display_name}', callback_data=f'ui:teamassign:{task.id}:{va.id}')])
@@ -881,9 +907,16 @@ async def flow_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                 context.user_data.pop(FLOW_KEY, None)
                 await update.message.reply_text('❌ No supervisor assigned to you yet. Contact your Business Manager.')
                 return
-            await context.bot.send_message(chat_id=va.supervisor.telegram_user_id, text=f'❓ Question from {va.display_name}:\n\n{text}')
-            context.user_data.pop(FLOW_KEY, None)
-            await update.message.reply_text('✅ Question sent to your supervisor!\n\nThey\'ll get back to you shortly.', reply_markup=_quick_kb)
+            try:
+                await context.bot.send_message(chat_id=va.supervisor.telegram_user_id, text=f'❓ Question from {va.display_name}:\n\n{text}')
+                context.user_data.pop(FLOW_KEY, None)
+                await update.message.reply_text('✅ Question sent to your supervisor!\n\nThey\'ll get back to you shortly.', reply_markup=_quick_kb)
+            except Exception:
+                context.user_data.pop(FLOW_KEY, None)
+                await update.message.reply_text(
+                    f'⚠️ Could not reach your supervisor.\n\n'
+                    f'Ask {va.supervisor.display_name} to open a private chat with this bot and send /start — then try again.'
+                )
             return
         if flow.get('type') == 'quickflag' and flow.get('awaiting') == 'quickflag_msg':
             if actor.role != Role.VA or actor.role_user_id is None:
@@ -895,9 +928,16 @@ async def flow_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                 context.user_data.pop(FLOW_KEY, None)
                 await update.message.reply_text('❌ No supervisor assigned to you yet. Contact your Business Manager.')
                 return
-            await context.bot.send_message(chat_id=va.supervisor.telegram_user_id, text=f'🚩 Issue flagged by {va.display_name}:\n\n{text}')
-            context.user_data.pop(FLOW_KEY, None)
-            await update.message.reply_text('✅ Issue flagged!\n\nYour supervisor has been notified.', reply_markup=_quick_kb)
+            try:
+                await context.bot.send_message(chat_id=va.supervisor.telegram_user_id, text=f'🚩 Issue flagged by {va.display_name}:\n\n{text}')
+                context.user_data.pop(FLOW_KEY, None)
+                await update.message.reply_text('✅ Issue flagged!\n\nYour supervisor has been notified.', reply_markup=_quick_kb)
+            except Exception:
+                context.user_data.pop(FLOW_KEY, None)
+                await update.message.reply_text(
+                    f'⚠️ Could not reach your supervisor.\n\n'
+                    f'Ask {va.supervisor.display_name} to open a private chat with this bot and send /start — then try again.'
+                )
             return
         if flow.get('type') == 'quickconfirm' and flow.get('awaiting') == 'quickconfirm_msg':
             if actor.role != Role.VA or actor.role_user_id is None:
@@ -909,15 +949,25 @@ async def flow_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                 context.user_data.pop(FLOW_KEY, None)
                 await update.message.reply_text('❌ No supervisor assigned to you yet. Contact your Business Manager.')
                 return
-            await context.bot.send_message(chat_id=va.supervisor.telegram_user_id, text=f'🖐️ {va.display_name} needs your confirmation:\n\n{text}')
-            context.user_data.pop(FLOW_KEY, None)
-            await update.message.reply_text('✅ Confirmation request sent!\n\nYour supervisor will respond shortly.', reply_markup=_quick_kb)
+            try:
+                await context.bot.send_message(chat_id=va.supervisor.telegram_user_id, text=f'🖐️ {va.display_name} needs your confirmation:\n\n{text}')
+                context.user_data.pop(FLOW_KEY, None)
+                await update.message.reply_text('✅ Confirmation request sent!\n\nYour supervisor will respond shortly.', reply_markup=_quick_kb)
+            except Exception:
+                context.user_data.pop(FLOW_KEY, None)
+                await update.message.reply_text(
+                    f'⚠️ Could not reach your supervisor.\n\n'
+                    f'Ask {va.supervisor.display_name} to open a private chat with this bot and send /start — then try again.'
+                )
             return
         if flow.get('type') == 'setrate' and flow.get('awaiting') == 'setrate_amount':
             try:
                 amount = Decimal(text)
             except InvalidOperation:
-                await update.message.reply_text('⚠️ Please send a valid number, for example 12.5')
+                await update.message.reply_text('⚠️ Please send a valid number, for example: 12.50')
+                return
+            if amount <= 0:
+                await update.message.reply_text('⚠️ Rate must be greater than zero.')
                 return
             va = await get_user_by_internal_id(session, client_id=actor.client_id, user_id=flow['va_id'])
             if not va:

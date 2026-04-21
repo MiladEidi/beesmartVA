@@ -109,8 +109,9 @@ async def setup_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "  1. Add your team: /adduser [tg_id] VA [Name]\n"
         "  2. Add a supervisor: /adduser [tg_id] SUPERVISOR [Name]\n"
         "  3. Add the client: /adduser [tg_id] CLIENT [Name]\n"
-        "  4. Assign supervisors: /set supervisor [va_id] [sup_id]\n"
-        "  5. Set VA rates: /set rate [va_id] [amount]\n\n"
+        "  4. Run /groups to see everyone's User ID\n"
+        "  5. Assign supervisors: /set supervisor [va_user_id] [supervisor_user_id]\n"
+        "  6. Set VA rates: /set rate [va_user_id] [amount]\n\n"
         "Full setup guide: /guide setup\n"
         "Guided menu: /menu"
     )
