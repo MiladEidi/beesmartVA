@@ -41,8 +41,8 @@ async def report_all_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     async with SessionLocal() as session:
         actor = await resolve_actor(session, update)
         if not actor or not has_manager_access(actor.role) or not update.effective_user:
-            await update.message.reply_text('⛔ Only supervisors and business managers can use /report all.')
+            await update.message.reply_text('⛔ Only supervisors and managers can use /report all.')
             return
-        text = await executive_summary(session, telegram_user_id=update.effective_user.id, include_financials=(actor.role == Role.BUSINESS_MANAGER))
+        text = await executive_summary(session, telegram_user_id=update.effective_user.id, include_financials=(actor.role == Role.MANAGER))
         await context.bot.send_message(chat_id=update.effective_user.id, text=text)
         await update.message.reply_text('📊 Executive summary sent to your private chat.')

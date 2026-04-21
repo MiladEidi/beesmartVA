@@ -79,7 +79,7 @@ async def get_business_manager(session: AsyncSession, *, client_id: int) -> User
     return await session.scalar(
         select(User).where(
             User.client_id == client_id,
-            User.role == Role.BUSINESS_MANAGER,
+            User.role == Role.MANAGER,
             User.active.is_(True),
         )
     )
@@ -96,13 +96,13 @@ async def _get_global_config(session: AsyncSession) -> GlobalConfig:
 
 
 async def get_global_bm_telegram_id(session: AsyncSession) -> int | None:
-    """Return the Telegram user ID of the global business manager, or None."""
+    """Return the Telegram user ID of the global manager, or None."""
     config = await _get_global_config(session)
     return config.business_manager_telegram_id
 
 
 async def set_global_bm_telegram_id(session: AsyncSession, telegram_user_id: int) -> None:
-    """Record a new global business manager Telegram ID."""
+    """Record a new global manager Telegram ID."""
     config = await _get_global_config(session)
     config.business_manager_telegram_id = telegram_user_id
     await session.flush()
@@ -122,16 +122,16 @@ async def add_or_update_user(
     va_start_date: date | None = None,
     allow_business_manager_transfer: bool = False,
 ) -> User:
-    if role == Role.BUSINESS_MANAGER:
+    if role == Role.MANAGER:
         global_bm_tg_id = await get_global_bm_telegram_id(session)
         if global_bm_tg_id and global_bm_tg_id != telegram_user_id:
             if not allow_business_manager_transfer:
-                raise ValueError('A business manager already exists globally. Only the current business manager can transfer this role.')
+                raise ValueError('A manager already exists globally. Only the current manager can transfer this role.')
             # Demote the old BM in every workspace they belong to
             old_bm_users = await session.scalars(
                 select(User).where(
                     User.telegram_user_id == global_bm_tg_id,
-                    User.role == Role.BUSINESS_MANAGER,
+                    User.role == Role.MANAGER,
                     User.active.is_(True),
                 )
             )

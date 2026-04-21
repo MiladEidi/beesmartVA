@@ -85,7 +85,7 @@ async def assign_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     async with SessionLocal() as session:
         actor = await resolve_actor(session, update)
         if not actor or not has_manager_access(actor.role) or actor.role_user_id is None:
-            await update.message.reply_text('Only supervisors or business managers can assign tasks.')
+            await update.message.reply_text('Only supervisors or managers can assign tasks.')
             return
         user = await get_user_by_display_id(session, client_id=actor.client_id, display_id=va_display_id)
         if not user:
@@ -103,7 +103,7 @@ async def overdue_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     async with SessionLocal() as session:
         actor = await resolve_actor(session, update)
         if not actor or not has_manager_access(actor.role):
-            await update.message.reply_text('Only supervisors or business managers can use /overdue.')
+            await update.message.reply_text('Only supervisors or managers can use /overdue.')
             return
         tasks = await overdue_tasks(session, client_id=actor.client_id)
         await update.message.reply_text(render_task_list(tasks, await user_map(session, client_id=actor.client_id)))
@@ -113,7 +113,7 @@ async def flagged_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     async with SessionLocal() as session:
         actor = await resolve_actor(session, update)
         if not actor or not has_manager_access(actor.role):
-            await update.message.reply_text('Only supervisors or business managers can use /flagged.')
+            await update.message.reply_text('Only supervisors or managers can use /flagged.')
             return
         tasks = await flagged_tasks(session, client_id=actor.client_id)
         await update.message.reply_text(render_task_list(tasks, await user_map(session, client_id=actor.client_id)))

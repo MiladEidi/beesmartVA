@@ -24,7 +24,7 @@ async def _notify_supervisor(update: Update, context: ContextTypes.DEFAULT_TYPE,
         if not va or not va.supervisor:
             await update.message.reply_text(
                 'No supervisor is assigned to your account yet.\n\n'
-                'Ask your Business Manager to run:\n'
+                'Ask your Manager to run:\n'
                 f'  /set supervisor [your_user_id] [supervisor_user_id]\n\n'
                 'Your user ID is shown when you run /start in the group.'
             )
@@ -90,7 +90,7 @@ async def notify_client_command(update: Update, context: ContextTypes.DEFAULT_TY
         else:
             await update.message.reply_text(
                 'No client user is registered in this group yet.\n\n'
-                'Ask your Business Manager to add one with:\n'
+                'Ask your Manager to add one with:\n'
                 '  /adduser [telegram_id] CLIENT [Name]'
             )
 

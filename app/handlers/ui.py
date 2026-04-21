@@ -51,7 +51,7 @@ def _menu_keyboard(role: Role | None) -> InlineKeyboardMarkup:
             [InlineKeyboardButton('📤 Submit Timesheet — send week\'s hours', callback_data='ui:submittimesheet')],
             [InlineKeyboardButton('⚡ Quick Actions — message your supervisor', callback_data='ui:quickactions:start')],
         ]
-    if role in {Role.SUPERVISOR, Role.BUSINESS_MANAGER}:
+    if role in {Role.SUPERVISOR, Role.MANAGER}:
         rows += [
             [InlineKeyboardButton('➕ Add User — register a new team member', callback_data='ui:adduser:start')],
             [InlineKeyboardButton('👥 Set Supervisor — assign VA\'s manager', callback_data='ui:setsupervisor:start')],
@@ -60,7 +60,7 @@ def _menu_keyboard(role: Role | None) -> InlineKeyboardMarkup:
         if role == Role.SUPERVISOR:
             rows += [[InlineKeyboardButton('📋 Pending Tasks — view & assign team tasks', callback_data='ui:teamtasks:view')]]
         rows += [[InlineKeyboardButton('📊 Executive Report — full team summary', callback_data='ui:report:all')]]
-    if role in {Role.CLIENT, Role.BUSINESS_MANAGER}:
+    if role in {Role.CLIENT, Role.MANAGER}:
         rows += [[InlineKeyboardButton('📈 Reports — weekly, monthly & scores', callback_data='ui:reports')]]
     return InlineKeyboardMarkup(rows)
 
@@ -183,7 +183,7 @@ async def ui_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             if not actor or actor.role != Role.VA or actor.role_user_id is None:
                 await query.edit_message_text(
                     'Only VAs can submit timesheets.\n\n'
-                    'If you are a VA but seeing this error, contact your Business Manager.',
+                    'If you are a VA but seeing this error, contact your Manager.',
                     reply_markup=InlineKeyboardMarkup([[_back_row()[0]]]),
                 )
                 return
@@ -219,7 +219,7 @@ async def ui_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 await query.edit_message_text(
                     '📊 Executive Report\n\n'
                     'Type /report all in the chat to get the full executive summary.\n\n'
-                    'Business Managers also see financial totals across all VAs.',
+                    'Managers also see financial totals across all VAs.',
                     reply_markup=InlineKeyboardMarkup([
                         [InlineKeyboardButton('📊 Reports Guide', callback_data='ui:guide:reports')],
                         [_back_row()[0]],
@@ -260,7 +260,7 @@ async def ui_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             if actor.role != Role.VA or actor.role_user_id is None:
                 await query.edit_message_text(
                     'Only VAs can log hours.\n\n'
-                    'If you are a VA, make sure your Business Manager has added you with /adduser.'
+                    'If you are a VA, make sure your Manager has added you with /adduser.'
                 )
                 return
             sub = parts[2]
@@ -316,7 +316,7 @@ async def ui_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             if actor.role_user_id is None:
                 await query.edit_message_text(
                     'You are not registered in this group.\n\n'
-                    'Ask your Business Manager to add you with /adduser.'
+                    'Ask your Manager to add you with /adduser.'
                 )
                 return
             sub = parts[2]
@@ -372,7 +372,7 @@ async def ui_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         if action == 'adduser':
             if not has_manager_access(actor.role):
                 await query.edit_message_text(
-                    'Only supervisors or business managers can add users.\n\n'
+                    'Only supervisors or managers can add users.\n\n'
                     'For setup help: /guide setup'
                 )
                 return
@@ -381,7 +381,7 @@ async def ui_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 [InlineKeyboardButton('🙋 VA — logs hours, tasks, drafts', callback_data='ui:adduserrole:VA')],
                 [InlineKeyboardButton('👔 Supervisor — reviews timesheets & drafts', callback_data='ui:adduserrole:SUPERVISOR')],
                 [InlineKeyboardButton('👤 Client — final timesheet approval', callback_data='ui:adduserrole:CLIENT')],
-                [InlineKeyboardButton('⭐ Business Manager — full access', callback_data='ui:adduserrole:BUSINESS_MANAGER')],
+                [InlineKeyboardButton('⭐ Manager — full access', callback_data='ui:adduserrole:MANAGER')],
                 [_cancel_row()[0]],
             ])
             await query.edit_message_text(
@@ -408,7 +408,7 @@ async def ui_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             return
         if action == 'setsupervisor':
             if not has_manager_access(actor.role):
-                await query.edit_message_text('Only supervisors or business managers can assign supervisors.')
+                await query.edit_message_text('Only supervisors or managers can assign supervisors.')
                 return
             vas = await get_role_users(session, client_id=actor.client_id, role=Role.VA)
             if not vas:
@@ -431,18 +431,18 @@ async def ui_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 return
             flow['va_id'] = int(parts[2])
             sups = await get_role_users(session, client_id=actor.client_id, role=Role.SUPERVISOR)
-            bms = await get_role_users(session, client_id=actor.client_id, role=Role.BUSINESS_MANAGER)
+            bms = await get_role_users(session, client_id=actor.client_id, role=Role.MANAGER)
             users = sups + [u for u in bms if u.id not in {x.id for x in sups}]
             if not users:
                 context.user_data.pop(FLOW_KEY, None)
                 await query.edit_message_text(
-                    'No supervisors or business managers are registered yet.\n\nAdd one with /adduser or /menu → Add User.',
+                    'No supervisors or managers are registered yet.\n\nAdd one with /adduser or /menu → Add User.',
                     reply_markup=InlineKeyboardMarkup([[_back_row()[0]]]),
                 )
                 return
             await query.edit_message_text(
                 'Step 2 of 2 — Assign Supervisor\n\n'
-                'Choose the supervisor or business manager for this VA:',
+                'Choose the supervisor or manager for this VA:',
                 reply_markup=InlineKeyboardMarkup(_user_button_rows(users, 'ui:setsupervisorto', lambda u: f'👔 {u.display_name} ({u.role.value})')),
             )
             return
@@ -467,7 +467,7 @@ async def ui_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             return
         if action == 'setrate':
             if not has_manager_access(actor.role):
-                await query.edit_message_text('Only supervisors or business managers can set rates.')
+                await query.edit_message_text('Only supervisors or managers can set rates.')
                 return
             vas = await get_role_users(session, client_id=actor.client_id, role=Role.VA)
             if not vas:
@@ -831,10 +831,10 @@ async def flow_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                 return
             if flow.get('awaiting') == 'adduser_name':
                 role = Role(flow['role'])
-                if role == Role.BUSINESS_MANAGER and actor.role != Role.BUSINESS_MANAGER:
+                if role == Role.MANAGER and actor.role != Role.MANAGER:
                     context.user_data.pop(FLOW_KEY, None)
                     await update.message.reply_text(
-                        '⛔ Only the current Business Manager can assign or change the Business Manager role.'
+                        '⛔ Only the current Manager can assign or change the Manager role.'
                     )
                     return
                 try:
@@ -844,7 +844,7 @@ async def flow_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                         telegram_user_id=flow['telegram_user_id'],
                         display_name=text,
                         role=role,
-                        allow_business_manager_transfer=(role == Role.BUSINESS_MANAGER and actor.role == Role.BUSINESS_MANAGER),
+                        allow_business_manager_transfer=(role == Role.MANAGER and actor.role == Role.MANAGER),
                     )
                 except ValueError as exc:
                     context.user_data.pop(FLOW_KEY, None)
@@ -905,7 +905,7 @@ async def flow_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             va = await get_user_by_internal_id(session, client_id=actor.client_id, user_id=actor.role_user_id)
             if not va or not va.supervisor:
                 context.user_data.pop(FLOW_KEY, None)
-                await update.message.reply_text('❌ No supervisor assigned to you yet. Contact your Business Manager.')
+                await update.message.reply_text('❌ No supervisor assigned to you yet. Contact your Manager.')
                 return
             try:
                 await context.bot.send_message(chat_id=va.supervisor.telegram_user_id, text=f'❓ Question from {va.display_name}:\n\n{text}')
@@ -926,7 +926,7 @@ async def flow_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             va = await get_user_by_internal_id(session, client_id=actor.client_id, user_id=actor.role_user_id)
             if not va or not va.supervisor:
                 context.user_data.pop(FLOW_KEY, None)
-                await update.message.reply_text('❌ No supervisor assigned to you yet. Contact your Business Manager.')
+                await update.message.reply_text('❌ No supervisor assigned to you yet. Contact your Manager.')
                 return
             try:
                 await context.bot.send_message(chat_id=va.supervisor.telegram_user_id, text=f'🚩 Issue flagged by {va.display_name}:\n\n{text}')
@@ -947,7 +947,7 @@ async def flow_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             va = await get_user_by_internal_id(session, client_id=actor.client_id, user_id=actor.role_user_id)
             if not va or not va.supervisor:
                 context.user_data.pop(FLOW_KEY, None)
-                await update.message.reply_text('❌ No supervisor assigned to you yet. Contact your Business Manager.')
+                await update.message.reply_text('❌ No supervisor assigned to you yet. Contact your Manager.')
                 return
             try:
                 await context.bot.send_message(chat_id=va.supervisor.telegram_user_id, text=f'🖐️ {va.display_name} needs your confirmation:\n\n{text}')

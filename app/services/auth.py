@@ -22,8 +22,8 @@ async def _build_actor(session: AsyncSession, update: Update, client_id: int, cl
     role_user = await get_user_by_telegram_id(session, client_id=client_id, telegram_user_id=user.id)
     resolved_role = role_user.role if role_user else None
     global_bm_tg_id = await get_global_bm_telegram_id(session)
-    if global_bm_tg_id and user.id == global_bm_tg_id and resolved_role != Role.BUSINESS_MANAGER:
-        resolved_role = Role.BUSINESS_MANAGER
+    if global_bm_tg_id and user.id == global_bm_tg_id and resolved_role != Role.MANAGER:
+        resolved_role = Role.MANAGER
     return BotContextUser(
         client_id=client_id,
         chat_id=client_chat_id,

@@ -35,7 +35,7 @@ GENERAL_GUIDE = (
     'VA               → logs hours, submits timesheets, handles tasks & drafts\n'
     'SUPERVISOR       → reviews timesheets, manages team, approves drafts\n'
     'CLIENT           → gives final approvals, reviews content, rates satisfaction\n'
-    'BUSINESS_MANAGER → full access (supervisor + client + workspace admin)\n\n'
+    'MANAGER          → full access (supervisor + client + workspace admin)\n\n'
     '━━━━━━━━━━━━━━━━━━━━━\n'
     'NAVIGATION\n'
     '━━━━━━━━━━━━━━━━━━━━━\n'
@@ -210,8 +210,8 @@ ROLE_HELP = {
         '/links    → booking links stored for this workspace\n'
         '/menu     → all available actions as tap buttons'
     ),
-    Role.BUSINESS_MANAGER: (
-        'Business Manager Complete Guide\n\n'
+    Role.MANAGER: (
+        'Manager Complete Guide\n\n'
         'You have full access: all supervisor actions + client approvals.\n\n'
         '━━━━━━━━━━━━━━━━━━━━━\n'
         '1. WORKSPACE SETUP\n'
@@ -274,7 +274,7 @@ ROLE_HELP = {
 TOPIC_GUIDES = {
     'va_checklist': (
         'VA Account Setup Checklist\n\n'
-        'Before a VA can use the bot fully, the Business Manager must complete\n'
+        'Before a VA can use the bot fully, the Manager must complete\n'
         'these steps in the Telegram group.\n\n'
         '━━━━━━━━━━━━━━━━━━━━━\n'
         'STEP 1 — Add the VA\n'
@@ -511,7 +511,7 @@ TOPIC_GUIDES = {
         '  /setup | Client Name | Business Name | Timezone | Primary Service | Tagline | Description\n\n'
         'Example:\n'
         '  /setup | Jane Smith | BeeSmartVA | Europe/Paris | Lead Generation | Smart VA support | Daily VA operations for Jane\n\n'
-        'After setup: you are automatically registered as Business Manager.\n\n'
+        'After setup: you are automatically registered as Manager.\n\n'
         'TIMEZONE FORMAT:\n'
         '  Use IANA timezone names:\n'
         '  Europe/Paris, Asia/Manila, America/New_York, Asia/Dubai, UTC\n'
@@ -522,7 +522,7 @@ TOPIC_GUIDES = {
         '  /adduser [telegram_id] VA [Full Name]\n'
         '  /adduser [telegram_id] SUPERVISOR [Full Name]\n'
         '  /adduser [telegram_id] CLIENT [Full Name]\n'
-        '  /adduser [telegram_id] BUSINESS_MANAGER [Full Name]\n'
+        '  /adduser [telegram_id] MANAGER [Full Name]\n'
         '  or /menu → Add user (guided with buttons)\n\n'
         'How to get a Telegram user ID:\n'
         '  Ask them to message @userinfobot on Telegram — it shows their ID.\n\n'
@@ -540,7 +540,7 @@ TOPIC_GUIDES = {
     'invoicing': (
         'How Invoicing Works\n\n'
         'Invoicing is based on APPROVED timesheets only.\n'
-        'Only supervisors and business managers can run invoice commands.\n\n'
+        'Only supervisors and managers can run invoice commands.\n\n'
         '─────────────────────────────\n'
         'STEP 1 — View the invoice summary\n'
         '─────────────────────────────\n'
@@ -630,7 +630,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 '  1. Add this bot to your Telegram group\n'
                 '  2. Run /setup in the group with your workspace details\n'
                 '  3. Add team members with /adduser\n\n'
-                'Already a team member? Ask your Business Manager to add you\n'
+                'Already a team member? Ask your Manager to add you\n'
                 'to the group, then run /start inside the group.'
             )
         else:
@@ -638,7 +638,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             msg = (
                 'Welcome to BeeSmartVA!\n\n'
                 'You are not registered in this group yet.\n\n'
-                'Ask your Business Manager to add you:\n'
+                'Ask your Manager to add you:\n'
                 '  /adduser [your_telegram_id] VA [Your Name]\n\n'
                 'Your Telegram ID: message @userinfobot to find it.\n\n'
                 'Once added, type /start again here.'
@@ -822,8 +822,8 @@ async def credentials_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     async with SessionLocal() as session:
         client = await get_client_by_chat_id(session, update.effective_chat.id)
         actor = await resolve_actor(session, update)
-        if not client or not actor or actor.role not in {Role.SUPERVISOR, Role.BUSINESS_MANAGER}:
-            await update.message.reply_text('Only supervisors or business managers can view stored credentials.')
+        if not client or not actor or actor.role not in {Role.SUPERVISOR, Role.MANAGER}:
+            await update.message.reply_text('Only supervisors or managers can view stored credentials.')
             return
         value = decrypt_credentials(client)
         await update.message.reply_text(value or 'No encrypted credentials stored.')

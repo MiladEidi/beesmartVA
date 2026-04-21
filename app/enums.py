@@ -5,7 +5,7 @@ class Role(str, Enum):
     VA = 'VA'
     SUPERVISOR = 'SUPERVISOR'
     CLIENT = 'CLIENT'
-    BUSINESS_MANAGER = 'BUSINESS_MANAGER'
+    MANAGER = 'MANAGER'
 
 
 class TimesheetStatus(str, Enum):

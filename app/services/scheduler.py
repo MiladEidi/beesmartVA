@@ -74,11 +74,11 @@ async def _job_daily_inner(bot: Bot) -> None:
                 for va in vas:
                     await _safe_send(bot, va.telegram_user_id, 'Quick reminder: have you logged your work hours for today? Use /hours today [hours] to keep things on track.')
 
-            # Supervisor + business manager operational visibility.
+            # Supervisor + manager operational visibility.
             if local.weekday() in {0, 1, 2, 3, 4} and local.hour == 14:
                 digest = await supervisor_action_digest(session, client_id=client.id, client_name=client.name)
                 if digest:
-                    recipients = await _users_for_roles(session, client.id, [Role.SUPERVISOR, Role.BUSINESS_MANAGER])
+                    recipients = await _users_for_roles(session, client.id, [Role.SUPERVISOR, Role.MANAGER])
                     sent = set()
                     for user in recipients:
                         if user.telegram_user_id in sent:
@@ -89,14 +89,14 @@ async def _job_daily_inner(bot: Bot) -> None:
             # Weekly ops summary for internal team.
             if local.weekday() == 0 and local.hour == 10:
                 report = await weekly_report(session, client_id=client.id, client_name=client.name, week_start=week_start)
-                recipients = await _users_for_roles(session, client.id, [Role.SUPERVISOR, Role.BUSINESS_MANAGER])
+                recipients = await _users_for_roles(session, client.id, [Role.SUPERVISOR, Role.MANAGER])
                 for user in recipients:
                     await _safe_send(bot, user.telegram_user_id, report)
 
             # Monthly report only to internal managers, not clients.
             if local.weekday() == 0 and local.day <= 7 and local.hour == 11:
                 report = await monthly_report(session, client_id=client.id, client_name=client.name, month_label=local.strftime('%B %Y'))
-                recipients = await _users_for_roles(session, client.id, [Role.SUPERVISOR, Role.BUSINESS_MANAGER])
+                recipients = await _users_for_roles(session, client.id, [Role.SUPERVISOR, Role.MANAGER])
                 for user in recipients:
                     await _safe_send(bot, user.telegram_user_id, report)
 
@@ -111,7 +111,7 @@ async def _job_daily_inner(bot: Bot) -> None:
                     )).all()
                 )
                 if sup_timesheets:
-                    recipients = await _users_for_roles(session, client.id, [Role.SUPERVISOR, Role.BUSINESS_MANAGER])
+                    recipients = await _users_for_roles(session, client.id, [Role.SUPERVISOR, Role.MANAGER])
                     pending_count = len(sup_timesheets)
                     for user in recipients:
                         await _safe_send(bot, user.telegram_user_id, f'📋 Reminder: You have {pending_count} timesheet(s) pending your review. Use /timesheets to see them.')
@@ -148,7 +148,7 @@ async def _job_daily_inner(bot: Bot) -> None:
 
         # Draft reminders — supervisors for PENDING drafts they haven't reviewed.
         for draft in await overdue_pending_drafts(session):
-            recipients = await _users_for_roles(session, draft.client_id, [Role.SUPERVISOR, Role.BUSINESS_MANAGER])
+            recipients = await _users_for_roles(session, draft.client_id, [Role.SUPERVISOR, Role.MANAGER])
             for user in recipients:
                 await _safe_send(bot, user.telegram_user_id, (
                     f'📝 Reminder: draft {draft.draft_code} ({draft.platform}) has been waiting for your review for over 48 hours.\n\n'
@@ -159,7 +159,7 @@ async def _job_daily_inner(bot: Bot) -> None:
         # Draft reminders — clients for CLIENT_PENDING drafts (48h nudge).
         for draft in await client_pending_drafts_overdue(session, hours=48):
             client_users = await _users_for_roles(session, draft.client_id, [Role.CLIENT])
-            bm_users = await _users_for_roles(session, draft.client_id, [Role.BUSINESS_MANAGER])
+            bm_users = await _users_for_roles(session, draft.client_id, [Role.MANAGER])
             notified = set()
             for user in client_users + bm_users:
                 if user.telegram_user_id in notified:
@@ -173,7 +173,7 @@ async def _job_daily_inner(bot: Bot) -> None:
 
         # Draft escalation — supervisors alerted when client hasn't reviewed after 72h.
         for draft in await client_pending_drafts_overdue(session, hours=72):
-            recipients = await _users_for_roles(session, draft.client_id, [Role.SUPERVISOR, Role.BUSINESS_MANAGER])
+            recipients = await _users_for_roles(session, draft.client_id, [Role.SUPERVISOR, Role.MANAGER])
             for user in recipients:
                 await _safe_send(bot, user.telegram_user_id, (
                     f'⚠️ Escalation: draft {draft.draft_code} ({draft.platform}) has been waiting for client approval for over 72 hours.\n\n'
@@ -185,13 +185,13 @@ async def _job_daily_inner(bot: Bot) -> None:
 async def job_management_summary(bot: Bot) -> None:
     try:
         async with SessionLocal() as session:
-            managers = list((await session.scalars(select(User).where(User.role.in_([Role.SUPERVISOR, Role.BUSINESS_MANAGER]), User.active.is_(True)))).all())
+            managers = list((await session.scalars(select(User).where(User.role.in_([Role.SUPERVISOR, Role.MANAGER]), User.active.is_(True)))).all())
             seen = set()
             for manager in managers:
                 if manager.telegram_user_id in seen:
                     continue
                 seen.add(manager.telegram_user_id)
-                include_financials = manager.role == Role.BUSINESS_MANAGER
+                include_financials = manager.role == Role.MANAGER
                 summary = await executive_summary(session, telegram_user_id=manager.telegram_user_id, include_financials=include_financials)
                 await _safe_send(bot, manager.telegram_user_id, summary)
     except Exception as exc:

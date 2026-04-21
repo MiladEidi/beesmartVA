@@ -306,12 +306,12 @@ async def executive_summary(session: AsyncSession, *, telegram_user_id: int, inc
     memberships = list(
         (
             await session.scalars(
-                select(User).where(User.telegram_user_id == telegram_user_id, User.role.in_([Role.SUPERVISOR, Role.BUSINESS_MANAGER]))
+                select(User).where(User.telegram_user_id == telegram_user_id, User.role.in_([Role.SUPERVISOR, Role.MANAGER]))
             )
         ).all()
     )
     if not memberships:
-        return "You are not registered as a supervisor or business manager in any group."
+        return "You are not registered as a supervisor or manager in any group."
     total_open = total_flagged = total_pending_ts = 0
     total_approved_hours = Decimal("0")
     lines = ["Executive summary"]

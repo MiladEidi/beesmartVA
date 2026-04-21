@@ -37,11 +37,6 @@ pip install --quiet --upgrade pip
 pip install --quiet -r requirements.txt
 echo "[start] Dependencies ready"
 
-# ── Database migrations ──────────────────────────────────────
-echo "[start] Running Alembic migrations ..."
-alembic upgrade head
-echo "[start] Database up to date"
-
 # ── Launch bot ───────────────────────────────────────────────
 echo "[start] Starting BeeSmartVA bot ..."
 exec python -m app.main

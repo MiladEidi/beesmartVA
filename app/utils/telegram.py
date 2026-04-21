@@ -58,7 +58,7 @@ def role_main_keyboard(role: Role | None) -> ReplyKeyboardMarkup:
             [KeyboardButton('/weekly'), KeyboardButton('/monthly')],
             [KeyboardButton('/scores'), KeyboardButton('/drafts')],
         ]
-    elif role in {Role.SUPERVISOR, Role.BUSINESS_MANAGER}:
+    elif role in {Role.SUPERVISOR, Role.MANAGER}:
         rows += [
             [KeyboardButton('/timesheets'), KeyboardButton('/tasks')],
             [KeyboardButton('/flagged'), KeyboardButton('/overdue')],

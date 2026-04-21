@@ -27,7 +27,7 @@ async def test_business_manager_executive_summary_has_financials():
     await init_db()
     async with SessionLocal() as session:
         client = await ensure_client(session, chat_id=1001, name='Client A', business_name='Biz A')
-        bm = await add_or_update_user(session, client_id=client.id, telegram_user_id=9001, display_name='Manager', role=Role.BUSINESS_MANAGER)
+        bm = await add_or_update_user(session, client_id=client.id, telegram_user_id=9001, display_name='Manager', role=Role.MANAGER)
         va = await add_or_update_user(session, client_id=client.id, telegram_user_id=9002, display_name='VA', role=Role.VA)
         ts = await create_or_get_timesheet(session, va_id=va.id, client_id=client.id, week_start=date(2026, 3, 23))
         ts.total_hours = Decimal('7.5')
@@ -62,7 +62,7 @@ async def test_business_manager_can_complete_full_timesheet_approval():
     await init_db()
     async with SessionLocal() as session:
         client = await ensure_client(session, chat_id=4001, name='Client A')
-        bm = await add_or_update_user(session, client_id=client.id, telegram_user_id=5001, display_name='BM', role=Role.BUSINESS_MANAGER)
+        bm = await add_or_update_user(session, client_id=client.id, telegram_user_id=5001, display_name='BM', role=Role.MANAGER)
         va = await add_or_update_user(session, client_id=client.id, telegram_user_id=5002, display_name='VA', role=Role.VA)
         ts = await create_or_get_timesheet(session, va_id=va.id, client_id=client.id, week_start=date(2026, 3, 23))
         ts.status = TimesheetStatus.SUBMITTED
@@ -79,16 +79,16 @@ async def test_business_manager_role_is_unique_and_transfer_requires_current_man
     await init_db()
     async with SessionLocal() as session:
         client = await ensure_client(session, chat_id=5001, name='Client B')
-        await add_or_update_user(session, client_id=client.id, telegram_user_id=6001, display_name='BM1', role=Role.BUSINESS_MANAGER)
+        await add_or_update_user(session, client_id=client.id, telegram_user_id=6001, display_name='BM1', role=Role.MANAGER)
         await add_or_update_user(session, client_id=client.id, telegram_user_id=6002, display_name='User', role=Role.VA)
 
-        with pytest.raises(ValueError, match='business manager already exists'):
+        with pytest.raises(ValueError, match='manager already exists'):
             await add_or_update_user(
                 session,
                 client_id=client.id,
                 telegram_user_id=6003,
                 display_name='BM2',
-                role=Role.BUSINESS_MANAGER,
+                role=Role.MANAGER,
             )
 
         bm2 = await add_or_update_user(
@@ -96,10 +96,10 @@ async def test_business_manager_role_is_unique_and_transfer_requires_current_man
             client_id=client.id,
             telegram_user_id=6003,
             display_name='BM2',
-            role=Role.BUSINESS_MANAGER,
+            role=Role.MANAGER,
             allow_business_manager_transfer=True,
         )
-        assert bm2.role == Role.BUSINESS_MANAGER
+        assert bm2.role == Role.MANAGER
         previous_bm = await session.scalar(
             select(User).where(User.client_id == client.id, User.telegram_user_id == 6001)
         )

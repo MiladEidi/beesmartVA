@@ -37,13 +37,13 @@ async def hours_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 'Hours must be logged in your team group, not in a private chat.\n\n'
                 'Switch to your team\'s Telegram group and run the command there.\n\n'
                 'If this IS the team group and you see this error, the workspace has\n'
-                'not been set up yet. Ask your Business Manager to run /setup.'
+                'not been set up yet. Ask your Manager to run /setup.'
             )
             return
         if actor.role_user_id is None:
             await update.message.reply_text(
                 'You are not registered in this group yet.\n\n'
-                'Ask your Business Manager to add you:\n'
+                'Ask your Manager to add you:\n'
                 '  /adduser [your_telegram_id] VA [Your Name]\n\n'
                 'Your Telegram ID: message @userinfobot to get it.'
             )
@@ -51,7 +51,7 @@ async def hours_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         if actor.role != Role.VA:
             await update.message.reply_text(
                 f'Only VAs can log hours. Your role is {actor.role.value}.\n\n'
-                'If you believe this is incorrect, contact your Business Manager.'
+                'If you believe this is incorrect, contact your Manager.'
             )
             return
         user = await get_user(session, user_id=actor.role_user_id, client_id=actor.client_id)
@@ -153,7 +153,7 @@ async def submit_hours_command(update: Update, context: ContextTypes.DEFAULT_TYP
                 '⚠️ Cannot submit — no supervisor assigned\n\n'
                 'A supervisor must be assigned to your account before you can\n'
                 'submit a timesheet. Your hours are saved and will not be lost.\n\n'
-                'Ask your Business Manager to run this command in the group:\n'
+                'Ask your Manager to run this command in the group:\n'
                 f'  /set supervisor {user.display_id or actor.role_user_id} [supervisor_user_id]  (IDs from /groups)\n\n'
                 f'Your user ID: {user.display_id or actor.role_user_id}\n'
                 'Share this number with your manager.\n\n'
@@ -202,7 +202,7 @@ async def timesheets_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     async with SessionLocal() as session:
         actor = await resolve_actor(session, update)
         if not actor or not has_manager_access(actor.role):
-            await update.message.reply_text('Only supervisors or business managers can use /timesheets.')
+            await update.message.reply_text('Only supervisors or managers can use /timesheets.')
             return
         items = await pending_timesheets(session, client_id=actor.client_id)
         if not items:
@@ -227,12 +227,12 @@ async def rate_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             else:
                 await update.message.reply_text(
                     '💰 Your hourly rate has not been set yet.\n\n'
-                    'Ask your Business Manager to run:\n'
+                    'Ask your Manager to run:\n'
                     f'  /set rate {user.display_id or actor.role_user_id} [amount]'
                 )
             return
         if not has_manager_access(actor.role):
-            await update.message.reply_text('Rate information is only available to VAs (own rate), supervisors, and business managers.')
+            await update.message.reply_text('Rate information is only available to VAs (own rate), supervisors, and managers.')
             return
         # Managers: show rate for a specific VA by internal user ID arg.
         if context.args:
@@ -263,7 +263,7 @@ async def invoice_summary_command(update: Update, context: ContextTypes.DEFAULT_
     async with SessionLocal() as session:
         actor = await resolve_actor(session, update)
         if not actor or not has_manager_access(actor.role):
-            await update.message.reply_text('Only supervisors or business managers can use invoice commands.')
+            await update.message.reply_text('Only supervisors or managers can use invoice commands.')
             return
         va = await session.scalar(select(User).where(User.client_id == actor.client_id, User.telegram_user_id == va_tg_id, User.role == Role.VA))
         if not va:
@@ -283,7 +283,7 @@ async def invoice_sent_command(update: Update, context: ContextTypes.DEFAULT_TYP
     async with SessionLocal() as session:
         actor = await resolve_actor(session, update)
         if not actor or not has_manager_access(actor.role) or actor.role_user_id is None:
-            await update.message.reply_text('Only supervisors or business managers can use invoice commands.')
+            await update.message.reply_text('Only supervisors or managers can use invoice commands.')
             return
         va = await session.scalar(select(User).where(User.client_id == actor.client_id, User.telegram_user_id == va_tg_id, User.role == Role.VA))
         if not va:

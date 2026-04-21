@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from app.enums import Role
 
-MANAGER_ROLES = {Role.SUPERVISOR, Role.BUSINESS_MANAGER}
-APPROVER_ROLES = {Role.CLIENT, Role.BUSINESS_MANAGER}
-REVIEWER_ROLES = {Role.CLIENT, Role.SUPERVISOR, Role.BUSINESS_MANAGER}
+MANAGER_ROLES = {Role.SUPERVISOR, Role.MANAGER}
+APPROVER_ROLES = {Role.CLIENT, Role.MANAGER}
+REVIEWER_ROLES = {Role.CLIENT, Role.SUPERVISOR, Role.MANAGER}
 
 
 def has_manager_access(role: Role | None) -> bool:

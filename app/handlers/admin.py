@@ -73,8 +73,8 @@ async def setup_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         global_bm_tg_id = await get_global_bm_telegram_id(session)
         if global_bm_tg_id and update.effective_user.id != global_bm_tg_id:
             await update.message.reply_text(
-                'A business manager is already registered globally.\n\n'
-                'Only the current business manager can set up new workspaces.\n'
+                'A manager is already registered globally.\n\n'
+                'Only the current manager can set up new workspaces.\n'
                 'Ask them to run /setup in this group.'
             )
             return
@@ -94,7 +94,7 @@ async def setup_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             client_id=client.id,
             telegram_user_id=update.effective_user.id,
             display_name=update.effective_user.full_name,
-            role=Role.BUSINESS_MANAGER,
+            role=Role.MANAGER,
             timezone=timezone_name,
         )
         await session.commit()
@@ -104,7 +104,7 @@ async def setup_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         f"  Client:   {client_name}\n"
         f"  Business: {business_name}\n"
         f"  Timezone: {timezone_name}\n\n"
-        "You are registered as Business Manager.\n\n"
+        "You are registered as Manager.\n\n"
         "Next steps:\n"
         "  1. Add your team: /adduser [tg_id] VA [Name]\n"
         "  2. Add a supervisor: /adduser [tg_id] SUPERVISOR [Name]\n"
@@ -121,7 +121,7 @@ async def adduser_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if len(context.args) < 3:
         await update.message.reply_text(
             "Use: /adduser [tg_id] [ROLE] [display_name]\n\n"
-            "Roles: VA | SUPERVISOR | CLIENT | BUSINESS_MANAGER\n\n"
+            "Roles: VA | SUPERVISOR | CLIENT | MANAGER\n\n"
             "Examples:\n"
             "  /adduser 123456789 VA Sarah Jones\n"
             "  /adduser 987654321 SUPERVISOR Mike Smith\n"
@@ -139,7 +139,7 @@ async def adduser_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     except Exception:
         await update.message.reply_text(
             "Invalid format.\n\n"
-            "Use: /adduser [tg_id] [VA|SUPERVISOR|CLIENT|BUSINESS_MANAGER] [display_name]\n"
+            "Use: /adduser [tg_id] [VA|SUPERVISOR|CLIENT|MANAGER] [display_name]\n"
             "Example: /adduser 123456789 VA Sarah Jones"
         )
         return
@@ -149,15 +149,15 @@ async def adduser_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     async with SessionLocal() as session:
         actor = await resolve_actor(session, update)
         if not actor or not has_manager_access(actor.role):
-            await update.message.reply_text("Only supervisors or business managers can add users.")
+            await update.message.reply_text("Only supervisors or managers can add users.")
             return
 
-        if role == Role.BUSINESS_MANAGER:
+        if role == Role.MANAGER:
             global_bm_tg_id = await get_global_bm_telegram_id(session)
             # If a global BM exists and it is not the actor, block the request.
             if global_bm_tg_id and actor.telegram_user_id != global_bm_tg_id:
                 await update.message.reply_text(
-                    "Only the current business manager can assign or change the business manager.\n\n"
+                    "Only the current manager can assign or change the manager.\n\n"
                     "To transfer the role use: /setmanager [telegram_id] [display_name]"
                 )
                 return
@@ -171,7 +171,7 @@ async def adduser_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 role=role,
                 timezone="UTC",
                 va_start_date=date.today() if role == Role.VA else None,
-                allow_business_manager_transfer=(role == Role.BUSINESS_MANAGER and actor.role == Role.BUSINESS_MANAGER),
+                allow_business_manager_transfer=(role == Role.MANAGER and actor.role == Role.MANAGER),
             )
         except ValueError as exc:
             await update.message.reply_text(str(exc))
@@ -223,7 +223,7 @@ async def groups_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     async with SessionLocal() as session:
         actor = await resolve_actor(session, update)
         if not actor or not has_manager_access(actor.role):
-            await update.message.reply_text("Only supervisors or business managers can use /groups.")
+            await update.message.reply_text("Only supervisors or managers can use /groups.")
             return
 
         users = await list_group_users(session, client_id=actor.client_id)
@@ -261,7 +261,7 @@ async def set_supervisor_command(update: Update, context: ContextTypes.DEFAULT_T
     async with SessionLocal() as session:
         actor = await resolve_actor(session, update)
         if not actor or not has_manager_access(actor.role) or actor.role_user_id is None:
-            await update.message.reply_text("Only supervisors or business managers can assign supervisors.")
+            await update.message.reply_text("Only supervisors or managers can assign supervisors.")
             return
 
         va_user = await get_user_by_display_id(session, client_id=actor.client_id, display_id=va_display_id)
@@ -315,7 +315,7 @@ async def set_rate_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     async with SessionLocal() as session:
         actor = await resolve_actor(session, update)
         if not actor or not has_manager_access(actor.role):
-            await update.message.reply_text("Only supervisors or business managers can set rates.")
+            await update.message.reply_text("Only supervisors or managers can set rates.")
             return
 
         va = None
@@ -365,7 +365,7 @@ async def set_timezone_command(update: Update, context: ContextTypes.DEFAULT_TYP
         client = await get_client_by_chat_id(session, update.effective_chat.id)
 
         if not actor or not has_manager_access(actor.role) or not client:
-            await update.message.reply_text("Only supervisors or business managers can update timezones.")
+            await update.message.reply_text("Only supervisors or managers can update timezones.")
             return
 
         if target.lower() == "client":
@@ -414,7 +414,7 @@ async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         actor = await resolve_actor(session, update)
         client = await get_client_by_chat_id(session, update.effective_chat.id)
         if not actor or not client or not has_manager_access(actor.role):
-            await update.message.reply_text('Only supervisors or business managers can update client settings.')
+            await update.message.reply_text('Only supervisors or managers can update client settings.')
             return
         await update_client_field(session, client=client, field_name=field_name, value=value, actor_id=actor.role_user_id)
         await session.commit()
@@ -425,7 +425,7 @@ async def auditlog_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     async with SessionLocal() as session:
         actor = await resolve_actor(session, update)
         if not actor or not has_manager_access(actor.role):
-            await update.message.reply_text('Only supervisors or business managers can use /auditlog.')
+            await update.message.reply_text('Only supervisors or managers can use /auditlog.')
             return
         items = await recent_audit_log(session, client_id=actor.client_id, limit=20)
         if not items:
@@ -436,12 +436,12 @@ async def auditlog_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 
 async def setmanager_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Transfer the global Business Manager role to another Telegram user."""
+    """Transfer the global Manager role to another Telegram user."""
     if len(context.args) < 2:
         await update.message.reply_text(
             "Use: /setmanager [telegram_id] [display_name]\n\n"
-            "This transfers the Business Manager role globally across all workspaces.\n"
-            "Only the current business manager can do this.\n\n"
+            "This transfers the Manager role globally across all workspaces.\n"
+            "Only the current manager can do this.\n\n"
             "Example:\n"
             "  /setmanager 123456789 Jane Smith\n\n"
             "How to find a Telegram ID:\n"
@@ -459,17 +459,17 @@ async def setmanager_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     async with SessionLocal() as session:
         actor = await resolve_actor(session, update)
-        if not actor or actor.role != Role.BUSINESS_MANAGER:
-            await update.message.reply_text("Only the current business manager can transfer this role.")
+        if not actor or actor.role != Role.MANAGER:
+            await update.message.reply_text("Only the current manager can transfer this role.")
             return
 
         global_bm_tg_id = await get_global_bm_telegram_id(session)
         if global_bm_tg_id and actor.telegram_user_id != global_bm_tg_id:
-            await update.message.reply_text("Only the current business manager can transfer this role.")
+            await update.message.reply_text("Only the current manager can transfer this role.")
             return
 
         if new_bm_tg_id == actor.telegram_user_id:
-            await update.message.reply_text("You are already the business manager.")
+            await update.message.reply_text("You are already the manager.")
             return
 
         try:
@@ -478,7 +478,7 @@ async def setmanager_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 client_id=actor.client_id,
                 telegram_user_id=new_bm_tg_id,
                 display_name=display_name,
-                role=Role.BUSINESS_MANAGER,
+                role=Role.MANAGER,
                 timezone="UTC",
                 allow_business_manager_transfer=True,
             )
@@ -489,9 +489,9 @@ async def setmanager_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await session.commit()
 
     await update.message.reply_text(
-        f"Business Manager transferred globally.\n\n"
-        f"  New BM: {display_name} (Telegram ID: {new_bm_tg_id})\n\n"
-        "They are now the business manager in every workspace.\n"
+        f"Manager transferred globally.\n\n"
+        f"  New Manager: {display_name} (Telegram ID: {new_bm_tg_id})\n\n"
+        "They are now the manager in every workspace.\n"
         "If they are not yet a member of other groups, add them with:\n"
-        "  /adduser [tg_id] BUSINESS_MANAGER [name]"
+        "  /adduser [tg_id] MANAGER [name]"
     )

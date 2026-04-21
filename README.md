@@ -9,6 +9,8 @@ BeeSmartVA is an async Telegram workflow bot for VA teams. Each Telegram group i
 - `CLIENT`: gives final approval and reviews drafts.
 - `BUSINESS_MANAGER`: full access. Can do everything a supervisor and client can do, and receives a broader executive report.
 
+## in this version
+
 - Guided `/menu` with button-driven flows for:
   - log hours
   - create task

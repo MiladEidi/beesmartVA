@@ -102,8 +102,8 @@ async def client_pending_drafts_overdue(session: AsyncSession, *, hours: int) ->
 
 
 async def get_first_client_user(session: AsyncSession, *, client_id: int) -> User | None:
-    return await session.scalar(select(User).where(User.client_id == client_id, User.role.in_([Role.CLIENT, Role.BUSINESS_MANAGER])).order_by(User.id.asc()))
+    return await session.scalar(select(User).where(User.client_id == client_id, User.role.in_([Role.CLIENT, Role.MANAGER])).order_by(User.id.asc()))
 
 
 async def get_supervisor_user(session: AsyncSession, *, client_id: int) -> User | None:
-    return await session.scalar(select(User).where(User.client_id == client_id, User.role.in_([Role.BUSINESS_MANAGER, Role.SUPERVISOR])).order_by(User.id.asc()))
+    return await session.scalar(select(User).where(User.client_id == client_id, User.role.in_([Role.MANAGER, Role.SUPERVISOR])).order_by(User.id.asc()))

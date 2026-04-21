@@ -35,7 +35,7 @@ async def timesheet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         va = await get_user(session, user_id=timesheet.va_id, client_id=actor.client_id)
         if action == 'sup_approve':
             if not has_manager_access(actor.role):
-                await query.answer('Only supervisors or business managers can approve at this step.', show_alert=True)
+                await query.answer('Only supervisors or managers can approve at this step.', show_alert=True)
                 return
             if timesheet.status != TimesheetStatus.SUBMITTED:
                 await query.answer('This timesheet is not waiting for manager review.', show_alert=True)
@@ -49,7 +49,7 @@ async def timesheet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             rate = decrypt_hourly_rate(va) if va else None
             await approve_by_supervisor(session, timesheet=timesheet, supervisor_id=actor.role_user_id)
             logs = await logs_for_week(session, va_id=va_id, client_id=ts_client_id, week_start=ts_week_start)
-            client_user = await session.scalar(select(User).where(User.client_id == actor.client_id, User.role.in_([Role.CLIENT, Role.BUSINESS_MANAGER])).order_by(User.id.asc()))
+            client_user = await session.scalar(select(User).where(User.client_id == actor.client_id, User.role.in_([Role.CLIENT, Role.MANAGER])).order_by(User.id.asc()))
             client_tg_id = client_user.telegram_user_id if client_user else None
             await session.commit()
             # Supervisor/BM sees rate; client sees timesheet without rate (confidential)
@@ -66,7 +66,7 @@ async def timesheet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return
         if action == 'client_approve':
             if not can_final_approve(actor.role):
-                await query.answer('Only the client or business manager can give final approval.', show_alert=True)
+                await query.answer('Only the client or manager can give final approval.', show_alert=True)
                 return
             if timesheet.status != TimesheetStatus.CLIENT_PENDING:
                 await query.answer('This timesheet is not waiting for final approval.', show_alert=True)
@@ -81,7 +81,7 @@ async def timesheet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
             return
         if action == 'query':
-            if actor.role not in {Role.CLIENT, Role.SUPERVISOR, Role.BUSINESS_MANAGER}:
+            if actor.role not in {Role.CLIENT, Role.SUPERVISOR, Role.MANAGER}:
                 await query.answer('You cannot query this timesheet.', show_alert=True)
                 return
             await mark_queried(session, timesheet=timesheet, actor_id=actor.role_user_id, note='Question raised from inline button.')
@@ -113,7 +113,7 @@ async def draft_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         # ── Step 1: Supervisor approves → moves to CLIENT_PENDING ──────────────
         if action == 'approve':
             if not has_manager_access(actor.role):
-                await query.answer('Only supervisors or business managers can approve at this step.', show_alert=True)
+                await query.answer('Only supervisors or managers can approve at this step.', show_alert=True)
                 return
             if draft.status.value != 'PENDING':
                 await query.answer('This draft is not waiting for supervisor review.', show_alert=True)
@@ -124,7 +124,7 @@ async def draft_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             client_user = await session.scalar(
                 select(User).where(
                     User.client_id == actor.client_id,
-                    User.role.in_([Role.CLIENT, Role.BUSINESS_MANAGER]),
+                    User.role.in_([Role.CLIENT, Role.MANAGER]),
                 ).order_by(User.id.asc())
             )
             if client_user:
@@ -163,7 +163,7 @@ async def draft_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         # ── Step 1 revision: Supervisor requests revision ───────────────────────
         if action == 'revise':
             if not has_manager_access(actor.role):
-                await query.answer('Only supervisors or business managers can request revisions at this step.', show_alert=True)
+                await query.answer('Only supervisors or managers can request revisions at this step.', show_alert=True)
                 return
             if draft.status.value != 'PENDING':
                 await query.answer('This draft is not waiting for supervisor review.', show_alert=True)
@@ -186,7 +186,7 @@ async def draft_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         # ── Step 2: Client approves → draft is ready to post ───────────────────
         if action == 'client_approve':
             if not can_final_approve(actor.role):
-                await query.answer('Only the client or business manager can give final approval.', show_alert=True)
+                await query.answer('Only the client or manager can give final approval.', show_alert=True)
                 return
             if draft.status.value != 'CLIENT_PENDING':
                 await query.answer('This draft is not waiting for your review.', show_alert=True)
@@ -213,7 +213,7 @@ async def draft_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         # ── Step 2 revision: Client requests revision ────────────────────────
         if action == 'client_revise':
             if not can_final_approve(actor.role):
-                await query.answer('Only the client or business manager can request revisions at this step.', show_alert=True)
+                await query.answer('Only the client or manager can request revisions at this step.', show_alert=True)
                 return
             if draft.status.value != 'CLIENT_PENDING':
                 await query.answer('This draft is not waiting for your review.', show_alert=True)
@@ -243,8 +243,8 @@ async def score_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     score = int(score_s)
     async with SessionLocal() as session:
         actor = await resolve_actor_for_client(session, update, int(client_id_s))
-        if not actor or actor.role not in {Role.CLIENT, Role.BUSINESS_MANAGER} or actor.role_user_id is None:
-            await query.answer('Only the client or business manager can respond.', show_alert=True)
+        if not actor or actor.role not in {Role.CLIENT, Role.MANAGER} or actor.role_user_id is None:
+            await query.answer('Only the client or manager can respond.', show_alert=True)
             return
         await save_score(
             session,
