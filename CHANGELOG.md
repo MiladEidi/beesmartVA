@@ -4,6 +4,26 @@ All notable changes to BeeSmartVA are recorded here, newest first.
 
 ---
 
+## 2026-04-21 — Rename BUSINESS_MANAGER role to MANAGER
+
+The `BUSINESS_MANAGER` role has been renamed to `MANAGER` across the entire codebase for clarity and brevity.
+
+### Changes
+- **Enum** (`app/enums.py`): `Role.BUSINESS_MANAGER = 'BUSINESS_MANAGER'` → `Role.MANAGER = 'MANAGER'`
+- **All code references** updated across services, handlers, and tests: `Role.BUSINESS_MANAGER` → `Role.MANAGER`
+- **User-facing text** updated: "Business Manager" / "BUSINESS_MANAGER" replaced with "Manager" / "MANAGER" in all bot messages, help text, and command usage strings
+- **UI button** updated: inline role-picker button now shows "Manager — full access"
+- **Callback data** updated: `ui:adduserrole:BUSINESS_MANAGER` → `ui:adduserrole:MANAGER`
+
+> **Note:** The database column value changes from `'BUSINESS_MANAGER'` to `'MANAGER'`. Run the following migration on existing databases:
+> ```sql
+> UPDATE user SET role = 'MANAGER' WHERE role = 'BUSINESS_MANAGER';
+> ```
+
+**Files changed:** `app/enums.py`, `app/services/auth.py`, `app/services/permissions.py`, `app/services/users.py`, `app/services/drafts.py`, `app/services/reports.py`, `app/services/scheduler.py`, `app/utils/telegram.py`, `app/handlers/admin.py`, `app/handlers/callbacks.py`, `app/handlers/checkins.py`, `app/handlers/common.py`, `app/handlers/hours.py`, `app/handlers/reports.py`, `app/handlers/tasks.py`, `app/handlers/ui.py`, `tests/test_services.py`
+
+---
+
 ## 2026-04-21 — Comprehensive UX polish pass
 
 A systematic audit of all handler files identified and fixed rough edges across the entire bot UX.
