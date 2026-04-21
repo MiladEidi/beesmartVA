@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from telegram import Update
 
 from app.enums import Role
-from app.services.users import get_client_by_chat_id, get_global_bm_telegram_id, get_user_by_telegram_id
+from app.services.users import get_client_by_chat_id, get_global_bm_telegram_id, get_manager_workspaces, get_user_by_telegram_id
 
 
 @dataclass(slots=True)
@@ -30,6 +30,30 @@ async def _build_actor(session: AsyncSession, update: Update, client_id: int, cl
         role_user_id=role_user.id if role_user else None,
         role=resolved_role,
         display_name=role_user.display_name if role_user else user.full_name,
+        telegram_user_id=user.id,
+    )
+
+
+async def resolve_actor_private(session: AsyncSession, update: Update) -> BotContextUser | None:
+    """Resolve actor in a private chat by looking up manager/supervisor memberships.
+
+    Used for commands that must be run privately (e.g. /set rate).
+    If the user belongs to multiple workspaces the first match is returned.
+    """
+    user = update.effective_user
+    chat = update.effective_chat
+    if user is None or chat is None:
+        return None
+    records = await get_manager_workspaces(session, user.id)
+    if not records:
+        return None
+    record = records[0]
+    return BotContextUser(
+        client_id=record.client_id,
+        chat_id=chat.id,
+        role_user_id=record.id,
+        role=record.role,
+        display_name=record.display_name,
         telegram_user_id=user.id,
     )
 

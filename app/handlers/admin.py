@@ -9,7 +9,7 @@ from telegram.ext import ContextTypes
 
 from app.db import SessionLocal
 from app.enums import Role
-from app.services.auth import resolve_actor
+from app.services.auth import resolve_actor, resolve_actor_private
 from app.services.permissions import has_manager_access
 from app.services.users import (
     add_or_update_user,
@@ -111,7 +111,7 @@ async def setup_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "  3. Add the client: /adduser [tg_id] CLIENT [Name]\n"
         "  4. Run /groups to see everyone's User ID\n"
         "  5. Assign supervisors: /set supervisor [va_user_id] [supervisor_user_id]\n"
-        "  6. Set VA rates: /set rate [va_user_id] [amount]\n\n"
+        "  6. Set VA rates: /set rate [va_user_id] [amount]  (in private chat — rates are confidential)\n\n"
         "Full setup guide: /guide setup\n"
         "Guided menu: /menu"
     )
@@ -293,6 +293,34 @@ async def set_supervisor_command(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def set_rate_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    # Rates are confidential — must be set in private chat only.
+    if update.effective_chat.type != 'private':
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
+        try:
+            await context.bot.send_message(
+                chat_id=update.effective_user.id,
+                text=(
+                    "⚠️ Rate info is confidential — please set rates here in private chat.\n\n"
+                    "Use: /set rate [va_user_id] [amount]\n"
+                    "  or /set rate tg:[va_telegram_id] [amount]\n\n"
+                    "Examples:\n"
+                    "  /set rate 2847 15.50    (user ID from /groups)\n"
+                    "  /set rate tg:123456789 12  (Telegram user ID)\n\n"
+                    "Or use /menu → Set Rate here in private chat.\n"
+                    "VA IDs are shown in /groups."
+                ),
+            )
+        except Exception:
+            await update.message.reply_text(
+                "⚠️ Rate setting must be done in a private chat with me to protect VA privacy.\n\n"
+                "Open a private chat with this bot and use:\n"
+                "  /set rate [va_user_id] [amount]"
+            )
+        return
+
     if len(context.args) < 2:
         await update.message.reply_text(
             "Use: /set rate [va_user_id] [amount]\n"
@@ -300,8 +328,7 @@ async def set_rate_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             "Examples:\n"
             "  /set rate 2847 15.50    (user ID from /groups)\n"
             "  /set rate tg:123456789 12  (Telegram user ID)\n\n"
-            "Or use the guided flow: /menu → Set rate\n"
-            "Full invoicing guide: /guide invoicing"
+            "VA IDs are shown in /groups."
         )
         return
 
@@ -309,11 +336,15 @@ async def set_rate_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     try:
         amount = Decimal(context.args[1])
     except Exception:
-        await update.message.reply_text("Use: /set rate [va_user_id] [amount]  or /set rate tg:[va_tg_id] [amount]")
+        await update.message.reply_text("Use: /set rate [va_user_id] [amount]")
+        return
+
+    if amount <= 0:
+        await update.message.reply_text("Rate must be greater than zero.")
         return
 
     async with SessionLocal() as session:
-        actor = await resolve_actor(session, update)
+        actor = await resolve_actor_private(session, update)
         if not actor or not has_manager_access(actor.role):
             await update.message.reply_text("Only supervisors or managers can set rates.")
             return
@@ -324,7 +355,7 @@ async def set_rate_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         else:
             va = await get_user_by_display_id(session, client_id=actor.client_id, display_id=int(target))
         if not va or va.role != Role.VA:
-            await update.message.reply_text("VA not found.")
+            await update.message.reply_text("VA not found. Check the ID with /groups.")
             return
 
         await add_or_update_user(
@@ -341,7 +372,7 @@ async def set_rate_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         )
         await session.commit()
 
-    await update.message.reply_text(f"Rate updated for {va.display_name}: ${amount}/hr")
+    await update.message.reply_text(f"✅ Rate updated for {va.display_name}: ${amount}/hr")
 
 
 async def set_timezone_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

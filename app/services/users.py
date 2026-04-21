@@ -67,6 +67,18 @@ async def get_user_by_display_id(session: AsyncSession, *, client_id: int, displ
     return await session.scalar(select(User).where(User.client_id == client_id, User.display_id == display_id, User.active.is_(True)))
 
 
+async def get_manager_workspaces(session: AsyncSession, telegram_user_id: int) -> list[User]:
+    """Return all User records where this Telegram user has supervisor or manager access."""
+    rows = await session.scalars(
+        select(User).where(
+            User.telegram_user_id == telegram_user_id,
+            User.role.in_([Role.SUPERVISOR, Role.MANAGER]),
+            User.active.is_(True),
+        )
+    )
+    return list(rows.all())
+
+
 async def _generate_unique_display_id(session: AsyncSession) -> int:
     while True:
         candidate = random.randint(1000, 9999)

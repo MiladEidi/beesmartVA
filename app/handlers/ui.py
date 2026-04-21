@@ -9,7 +9,7 @@ from telegram.ext import ContextTypes
 from app.db import SessionLocal
 from app.enums import Role, FlagReason
 from app.models import User
-from app.services.auth import resolve_actor
+from app.services.auth import resolve_actor, resolve_actor_private
 from app.services.drafts import submit_draft
 from app.services.followups import create_connection, pending_followups
 from app.services.hours import get_user, log_hours
@@ -106,6 +106,10 @@ async def ui_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     action = parts[1]
     async with SessionLocal() as session:
         actor = await resolve_actor(session, update)
+        # In private chat resolve_actor returns None (no group). Fall back to
+        # manager-workspace lookup so rate flows work privately.
+        if actor is None and update.effective_chat.type == 'private':
+            actor = await resolve_actor_private(session, update)
         if action == 'guide':
             topic = parts[2] if len(parts) > 2 else None
             guides = _get_topic_guides()
@@ -466,6 +470,14 @@ async def ui_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             )
             return
         if action == 'setrate':
+            if update.effective_chat.type != 'private':
+                await query.edit_message_text(
+                    '⚠️ Rate info is confidential.\n\n'
+                    'Please set rates in a private chat with me to protect VA privacy.\n\n'
+                    'Open a private chat with this bot, then use /menu → Set Rate\n'
+                    'or type: /set rate [va_user_id] [amount]'
+                )
+                return
             if not has_manager_access(actor.role):
                 await query.edit_message_text('Only supervisors or managers can set rates.')
                 return
@@ -751,6 +763,8 @@ async def flow_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
     async with SessionLocal() as session:
         actor = await resolve_actor(session, update)
+        if actor is None and update.effective_chat.type == 'private':
+            actor = await resolve_actor_private(session, update)
         if not actor:
             return
         text = update.message.text.strip()
