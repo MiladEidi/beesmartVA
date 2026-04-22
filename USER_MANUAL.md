@@ -8,11 +8,11 @@
 
 1. [What is BeeSmartVA?](#1-what-is-beesmartva)
 2. [Roles at a Glance](#2-roles-at-a-glance)
-3. [First-Time Setup (Business Manager)](#3-first-time-setup-business-manager)
+3. [First-Time Setup (MANAGER)](#3-first-time-setup-business-manager)
 4. [Virtual Assistant (VA) Guide](#4-virtual-assistant-va-guide)
 5. [Supervisor Guide](#5-supervisor-guide)
 6. [Client Guide](#6-client-guide)
-7. [Business Manager Guide](#7-business-manager-guide)
+7. [MANAGER Guide](#7-business-manager-guide)
 8. [Automated Reminders & Scheduled Behaviors](#8-automated-reminders--scheduled-behaviors)
 9. [User IDs Explained](#9-user-ids-explained)
 10. [Rate Privacy Rules](#10-rate-privacy-rules)
@@ -42,13 +42,13 @@ All commands are typed in the group chat. The bot also sends private messages to
 | **VA** (Virtual Assistant) | The person doing the work | Logs hours, completes tasks, submits drafts, tracks follow-ups |
 | **SUPERVISOR** | Team lead / account manager | Reviews timesheets and drafts, manages tasks, handles escalations |
 | **CLIENT** | The end client | Gives final approval on timesheets and content drafts, rates satisfaction |
-| **BUSINESS_MANAGER** | Owner / senior manager | Full access — combines supervisor + client privileges + workspace admin |
+| **MANAGER** | Owner / senior manager | Full access — combines supervisor + client privileges + workspace admin |
 
-> A workspace can have multiple VAs and supervisors, but only **one Business Manager** globally.
+> A workspace can have multiple VAs and supervisors, but only **one MANAGER** globally.
 
 ---
 
-## 3. First-Time Setup (Business Manager)
+## 3. First-Time Setup (MANAGER)
 
 ### Step 1 — Create the workspace
 
@@ -64,7 +64,7 @@ Run this command **in the Telegram group**:
 ```
 
 - `Timezone` must be a valid IANA timezone (e.g. `Europe/London`, `America/New_York`, `Asia/Manila`)
-- The person who runs `/setup` becomes the Business Manager
+- The person who runs `/setup` becomes the MANAGER
 - This must be done before any other commands will work
 
 ---
@@ -78,7 +78,7 @@ Run this command **in the Telegram group**:
 | Field | Options |
 |-------|---------|
 | `telegram_id` | Ask the person to message **@userinfobot** on Telegram to get their numeric ID |
-| `ROLE` | `VA`, `SUPERVISOR`, `CLIENT`, or `BUSINESS_MANAGER` |
+| `ROLE` | `VA`, `SUPERVISOR`, `CLIENT`, or `MANAGER` |
 | `Full Name` | How they will appear in the system |
 
 **Examples:**
@@ -126,7 +126,7 @@ Each team member must type `/start` in the group to activate their account and c
 | `/auditlog` | View last 20 changes made in the workspace |
 | `/set timezone [tg_id\|client] [timezone]` | Update a user's or the client's timezone |
 | `/update [field] [value]` | Update workspace settings (name, business_name, tagline, etc.) |
-| `/setmanager [telegram_id] [display_name]` | Transfer Business Manager role to someone else |
+| `/setmanager [telegram_id] [display_name]` | Transfer MANAGER role to someone else |
 
 ---
 
@@ -136,7 +136,7 @@ Each team member must type `/start` in the group to activate their account and c
 
 1. Make sure your supervisor has run `/adduser` to register you
 2. Type `/start` in the group — you will see your account readiness status
-3. Check that supervisor and rate are configured (if not, ask your Business Manager)
+3. Check that supervisor and rate are configured (if not, ask your MANAGER)
 
 ---
 
@@ -546,17 +546,17 @@ Your ratings are tracked over time and visible to supervisors.
 
 ---
 
-## 7. Business Manager Guide
+## 7. MANAGER Guide
 
-The Business Manager has full access to everything supervisors and clients can do, plus exclusive admin capabilities.
+The MANAGER has full access to everything supervisors and clients can do, plus exclusive admin capabilities.
 
 All commands from the [Supervisor Guide](#5-supervisor-guide) and [Client Guide](#6-client-guide) apply here.
 
 ---
 
-### Exclusive Business Manager commands
+### Exclusive MANAGER commands
 
-**Transfer the Business Manager role:**
+**Transfer the MANAGER role:**
 ```
 /setmanager [telegram_id] [display_name]
 ```
@@ -568,13 +568,13 @@ This removes the BM role from you and assigns it to the new person in all worksp
 /report all
 ```
 
-Unlike supervisors who see only operational data, Business Managers receive approved hours totals and financial summaries across all workspaces.
+Unlike supervisors who see only operational data, MANAGERs receive approved hours totals and financial summaries across all workspaces.
 
 ---
 
 ### Workspace setup and admin
 
-All setup commands (`/setup`, `/adduser`, `/set rate`, `/set supervisor`, `/groups`, `/auditlog`, `/update`) are available to Business Managers — see [First-Time Setup](#3-first-time-setup-business-manager).
+All setup commands (`/setup`, `/adduser`, `/set rate`, `/set supervisor`, `/groups`, `/auditlog`, `/update`) are available to MANAGERs — see [First-Time Setup](#3-first-time-setup-business-manager).
 
 ---
 
@@ -696,7 +696,7 @@ When a timesheet is sent to a client for approval, the `💰 Rate` and `💵 Est
 | `/confirm [question]` | Request a decision from supervisor |
 | `/notify client [message]` | Send message to client |
 
-### Supervisor & Business Manager
+### Supervisor & MANAGER
 
 | Command | Description |
 |---------|-------------|
@@ -719,12 +719,12 @@ When a timesheet is sent to a client for approval, the `💰 Rate` and `💵 Est
 | `/send scorecheck` | Send satisfaction survey to client |
 | `/auditlog` | Last 20 changes in the workspace |
 
-### Business Manager only
+### MANAGER only
 
 | Command | Description |
 |---------|-------------|
 | `/setup \| ...` | Initialize workspace (first-time only) |
-| `/setmanager [tg_id] [name]` | Transfer Business Manager role |
+| `/setmanager [tg_id] [name]` | Transfer MANAGER role |
 
 ---
 
