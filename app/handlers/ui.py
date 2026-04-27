@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -13,6 +13,7 @@ from app.services.auth import resolve_actor, resolve_actor_private
 from app.services.drafts import submit_draft
 from app.services.followups import create_connection, pending_followups
 from app.services.hours import get_user, log_hours, submit_hours
+from app.services.invoices import invoice_summary as compute_invoice, mark_invoiced
 from app.services.permissions import has_manager_access
 from app.services.reports import executive_summary, monthly_report, weekly_report
 from app.services.scores import score_history
@@ -63,7 +64,10 @@ def _menu_keyboard(role: Role | None) -> InlineKeyboardMarkup:
         ]
         if role == Role.SUPERVISOR:
             rows += [[InlineKeyboardButton('📋 Pending Tasks — view & assign team tasks', callback_data='ui:teamtasks:view')]]
-        rows += [[InlineKeyboardButton('📊 Executive Report — full team summary', callback_data='ui:report:all')]]
+        rows += [
+            [InlineKeyboardButton('🧾 Invoice — generate & mark as sent', callback_data='ui:invoice:start')],
+            [InlineKeyboardButton('📊 Executive Report — full team summary', callback_data='ui:report:all')],
+        ]
     if role in {Role.CLIENT, Role.MANAGER}:
         rows += [[InlineKeyboardButton('📈 Reports — weekly, monthly & scores', callback_data='ui:reports')]]
     return InlineKeyboardMarkup(rows)
@@ -791,6 +795,104 @@ async def ui_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 ]),
             )
             return
+        if action == 'invoice':
+            if not has_manager_access(actor.role):
+                await query.edit_message_text('Only supervisors and managers can use invoicing.')
+                return
+            vas = await get_role_users(session, client_id=actor.client_id, role=Role.VA)
+            if not vas:
+                await query.edit_message_text(
+                    'No VAs are registered yet.\n\nAdd one first with /adduser or /menu → Add User.',
+                    reply_markup=InlineKeyboardMarkup([[_back_row()[0]]]),
+                )
+                return
+            await query.edit_message_text(
+                'Invoice\n\nSelect a VA to generate an invoice for:',
+                reply_markup=InlineKeyboardMarkup(_user_button_rows(vas, 'ui:invoiceva', lambda u: f'🙋 {u.display_name}')),
+            )
+            return
+        if action == 'invoiceva':
+            if not has_manager_access(actor.role):
+                return
+            va_id = int(parts[2])
+            today = date.today()
+            this_month_start = today.replace(day=1)
+            last_month_end = this_month_start - timedelta(days=1)
+            last_month_start = last_month_end.replace(day=1)
+            va = await get_user_by_internal_id(session, client_id=actor.client_id, user_id=va_id)
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton(
+                    f'📅 This Month ({this_month_start.strftime("%b %Y")})',
+                    callback_data=f'ui:invoiceperiod:{va_id}:{this_month_start.isoformat()}:{today.isoformat()}',
+                )],
+                [InlineKeyboardButton(
+                    f'📅 Last Month ({last_month_start.strftime("%b %Y")})',
+                    callback_data=f'ui:invoiceperiod:{va_id}:{last_month_start.isoformat()}:{last_month_end.isoformat()}',
+                )],
+                [InlineKeyboardButton('✏️ Custom Range', callback_data=f'ui:invoicecustom:{va_id}')],
+                [InlineKeyboardButton('◀ Back', callback_data='ui:invoice:start')],
+            ])
+            await query.edit_message_text(
+                f'Invoice for {va.display_name if va else "VA"}\n\nSelect the billing period:',
+                reply_markup=kb,
+            )
+            return
+        if action == 'invoiceperiod':
+            if not has_manager_access(actor.role):
+                return
+            va_id = int(parts[2])
+            period_start = date.fromisoformat(parts[3])
+            period_end = date.fromisoformat(parts[4])
+            va = await get_user_by_internal_id(session, client_id=actor.client_id, user_id=va_id)
+            if not va:
+                await query.edit_message_text('VA not found.')
+                return
+            summary_text, _, _, _ = await compute_invoice(session, va=va, period_start=period_start, period_end=period_end)
+            await query.edit_message_text(
+                summary_text,
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton('✅ Mark as Invoiced', callback_data=f'ui:invoicemark:{va_id}:{period_start.isoformat()}:{period_end.isoformat()}')],
+                    [InlineKeyboardButton('◀ Change Period', callback_data=f'ui:invoiceva:{va_id}')],
+                    [_back_row()[0]],
+                ]),
+            )
+            return
+        if action == 'invoicecustom':
+            if not has_manager_access(actor.role):
+                return
+            va_id = int(parts[2])
+            context.user_data[FLOW_KEY] = {'type': 'invoicecustom', 'va_id': va_id, 'awaiting': 'invoicecustom_range'}
+            await query.edit_message_text(
+                'Custom Invoice Period\n\n'
+                'Type the date range and send it as a message.\n\n'
+                'Format: YYYY-MM-DD to YYYY-MM-DD\n'
+                'Example: 2024-01-01 to 2024-01-31',
+                reply_markup=InlineKeyboardMarkup([[_cancel_row()[0]]]),
+            )
+            return
+        if action == 'invoicemark':
+            if not has_manager_access(actor.role) or actor.role_user_id is None:
+                return
+            va_id = int(parts[2])
+            period_start = date.fromisoformat(parts[3])
+            period_end = date.fromisoformat(parts[4])
+            va = await get_user_by_internal_id(session, client_id=actor.client_id, user_id=va_id)
+            if not va:
+                await query.edit_message_text('VA not found.')
+                return
+            period = await mark_invoiced(session, va=va, period_start=period_start, period_end=period_end, actor_id=actor.role_user_id)
+            await session.commit()
+            await query.edit_message_text(
+                f'✅ Invoice marked as sent!\n\n'
+                f'VA:     {va.display_name}\n'
+                f'Period: {period_start.isoformat()} → {period_end.isoformat()}\n'
+                f'Total:  ${period.total_amount}',
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton('🧾 New Invoice', callback_data='ui:invoice:start')],
+                    [_back_row()[0]],
+                ]),
+            )
+            return
         await query.edit_message_text('Action not recognised.')
 
 
@@ -1011,6 +1113,46 @@ async def flow_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                     f'⚠️ Could not reach your supervisor.\n\n'
                     f'Ask {va.supervisor.display_name} to open a private chat with this bot and send /start — then try again.'
                 )
+            return
+        if flow.get('type') == 'invoicecustom' and flow.get('awaiting') == 'invoicecustom_range':
+            if not has_manager_access(actor.role) or actor.role_user_id is None:
+                context.user_data.pop(FLOW_KEY, None)
+                return
+            # Accept: "2024-01-01 to 2024-01-31" or "2024-01-01:2024-01-31" or "2024-01-01 - 2024-01-31"
+            text_clean = text.replace(' to ', ':').replace(' TO ', ':').replace(' - ', ':').replace('–', ':').replace('—', ':')
+            if ':' not in text_clean:
+                await update.message.reply_text(
+                    '⚠️ Format: YYYY-MM-DD to YYYY-MM-DD\n'
+                    'Example: 2024-01-01 to 2024-01-31'
+                )
+                return
+            try:
+                start_s, end_s = text_clean.split(':', 1)
+                period_start = date.fromisoformat(start_s.strip())
+                period_end = date.fromisoformat(end_s.strip())
+            except ValueError:
+                await update.message.reply_text(
+                    '⚠️ Could not read those dates.\n'
+                    'Use: YYYY-MM-DD to YYYY-MM-DD\n'
+                    'Example: 2024-01-01 to 2024-01-31'
+                )
+                return
+            va_id = flow['va_id']
+            va = await get_user_by_internal_id(session, client_id=actor.client_id, user_id=va_id)
+            if not va:
+                context.user_data.pop(FLOW_KEY, None)
+                await update.message.reply_text('VA not found.')
+                return
+            summary_text, _, _, _ = await compute_invoice(session, va=va, period_start=period_start, period_end=period_end)
+            context.user_data.pop(FLOW_KEY, None)
+            await update.message.reply_text(
+                summary_text,
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton('✅ Mark as Invoiced', callback_data=f'ui:invoicemark:{va_id}:{period_start.isoformat()}:{period_end.isoformat()}')],
+                    [InlineKeyboardButton('🧾 New Invoice', callback_data='ui:invoice:start')],
+                    [InlineKeyboardButton('🏠 Back to menu', callback_data='ui:backtomenu')],
+                ]),
+            )
             return
         if flow.get('type') == 'setrate' and flow.get('awaiting') == 'setrate_amount':
             try:

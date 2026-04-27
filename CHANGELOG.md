@@ -4,6 +4,30 @@ All notable changes to BeeSmartVA are recorded here, newest first.
 
 ---
 
+## 2026-04-27 — Setup parser hardening, timezone tolerance, guided invoice flow
+
+### Setup command parser fix (`admin.py`)
+The `/setup` command previously used `partition(" ")` to skip the command token, which caused the first field to be silently truncated whenever pipes had no leading space (e.g. `/setup|Jane|...` or `/setup| Jane|...`). The parser now walks past the command token character-by-character (stopping at the first space, pipe, or newline), so any spacing convention works.
+
+Error messages now report how many fields were received so the user knows exactly what went wrong.
+
+### Timezone tolerance (`admin.py`)
+Both `/setup` and `/set timezone` now strip all whitespace from the timezone field before validation, so `Europe / Paris` is silently normalised to `Europe/Paris` instead of failing. The rejection message now lists five common IANA examples so users can copy-paste rather than guess.
+
+### Guided Invoice flow added to `/menu` (`ui.py`)
+Invoicing previously required knowing the VA's Telegram ID and typing a `YYYY-MM-DD:YYYY-MM-DD` range by hand — impossible without referencing `/groups` and a calendar. The menu now has a `🧾 Invoice` button (visible to supervisors and managers) with a full guided flow:
+
+1. **Pick VA** — buttons showing all registered VAs by name
+2. **Pick period** — This Month, Last Month, or Custom Range (free-text step)
+3. **Review summary** — shows approved hours, rate, and total amount
+4. **Mark as Invoiced** — one-tap confirmation, stored in the system
+
+Custom range input accepts multiple natural formats: `2024-01-01 to 2024-01-31`, `2024-01-01:2024-01-31`, `2024-01-01 - 2024-01-31`.
+
+**Files changed:** `app/handlers/admin.py`, `app/handlers/ui.py`
+
+---
+
 ## 2026-04-27 — UX simplification: buttons that work, commands that forgive
 
 The bot already had guided menus — but several key buttons didn't actually do anything. They told users to type a command instead. This pass makes every button in `/menu` complete the action immediately.

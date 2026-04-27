@@ -28,7 +28,13 @@ from app.utils.dates import parse_schedule_text
 
 
 async def setup_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    raw = update.message.text.partition(" ")[2].strip()
+    text = update.message.text or ''
+    # Skip the /command token robustly — stop at first space OR first pipe,
+    # so `/setup|Field` and `/setup | Field` and `/setup Field` all work.
+    i = 1
+    while i < len(text) and text[i] not in (' ', '|', '\n', '\t'):
+        i += 1
+    raw = text[i:].strip()
     parts = [part.strip() for part in raw.split("|") if part.strip()]
 
     if len(parts) != 6:
@@ -38,24 +44,35 @@ async def setup_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             "/setup | Client Name | Business Name | Timezone | Primary Service | Tagline | Description\n\n"
             "Example:\n"
             "/setup | Jane Smith | BeeSmartVA | Europe/Paris | Lead Generation | Smart VA support | Daily VA operations for Jane\n\n"
-            "Fields explained:\n"
-            "  Client Name     → the client's name (e.g. Jane Smith)\n"
-            "  Business Name   → your VA business name (e.g. BeeSmartVA)\n"
-            "  Timezone        → IANA timezone (e.g. Europe/Paris, Asia/Manila, America/New_York)\n"
-            "  Primary Service → what you do (e.g. Lead Generation, Admin Support)\n"
-            "  Tagline         → short slogan (e.g. Smart VA support)\n"
-            "  Description     → one-line summary of the engagement\n\n"
+            f"{'You sent ' + str(len(parts)) + ' field(s). ' if parts else ''}"
+            "Fields needed:\n"
+            "  1. Client Name     — the client's name (e.g. Jane Smith)\n"
+            "  2. Business Name   — your VA business name (e.g. BeeSmartVA)\n"
+            "  3. Timezone        — IANA timezone (e.g. Europe/Paris, Asia/Manila, UTC)\n"
+            "  4. Primary Service — what you do (e.g. Lead Generation)\n"
+            "  5. Tagline         — short slogan\n"
+            "  6. Description     — one-line summary\n\n"
             "For the full setup guide: /guide setup"
         )
         return
 
     client_name, business_name, timezone_name, primary_service, tagline, description = parts
 
+    # Remove accidental spaces inside the timezone (e.g. "Europe / Paris" → "Europe/Paris")
+    timezone_name = timezone_name.replace(' ', '')
+
     try:
         ZoneInfo(timezone_name)
     except Exception:
         await update.message.reply_text(
-            "Timezone must be a valid IANA timezone such as Europe/Paris, America/New_York, or Asia/Dubai."
+            f'"{timezone_name}" is not a valid timezone.\n\n'
+            'Use an IANA timezone name — common examples:\n'
+            '  Europe/Paris\n'
+            '  America/New_York\n'
+            '  Asia/Manila\n'
+            '  Asia/Dubai\n'
+            '  UTC\n\n'
+            'Full list: en.wikipedia.org/wiki/List_of_tz_database_time_zones'
         )
         return
 
@@ -381,13 +398,15 @@ async def set_timezone_command(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     target = context.args[0]
-    timezone_name = context.args[1]
+    timezone_name = context.args[1].replace(' ', '')  # handle "Europe / Paris" → "Europe/Paris"
 
     try:
         ZoneInfo(timezone_name)
     except Exception:
         await update.message.reply_text(
-            "Use a valid IANA timezone, such as Europe/Paris, Asia/Manila, or America/New_York."
+            f'"{timezone_name}" is not a valid timezone.\n\n'
+            'Common examples:\n'
+            '  Europe/Paris  |  America/New_York  |  Asia/Manila  |  Asia/Dubai  |  UTC'
         )
         return
 
