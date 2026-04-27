@@ -93,11 +93,10 @@ async def set_dispatcher(update, context):
 
 
 async def submit_dispatcher(update, context):
+    # Accept /submit or /submit hours (the only subcommand)
     if context.args and context.args[0].lower() == 'hours':
         context.args = context.args[1:]
-        await submit_hours_command(update, context)
-        return
-    await update.message.reply_text('Use /submit hours')
+    await submit_hours_command(update, context)
 
 
 async def invoice_dispatcher(update, context):
@@ -115,22 +114,17 @@ async def invoice_dispatcher(update, context):
 
 
 async def report_dispatcher(update, context):
-    if not context.args:
-        await update.message.reply_text('Use /report all')
-        return
-    if context.args[0].lower() == 'all':
+    # Accept /report or /report all (the only subcommand)
+    if context.args and context.args[0].lower() == 'all':
         context.args = context.args[1:]
-        await report_all_command(update, context)
-        return
-    await update.message.reply_text('Use /report all')
+    await report_all_command(update, context)
 
 
 async def send_dispatcher(update, context):
+    # Accept /send or /send scorecheck (the only subcommand)
     if context.args and context.args[0].lower() == 'scorecheck':
         context.args = context.args[1:]
-        await send_scorecheck_command(update, context)
-        return
-    await update.message.reply_text('Use /send scorecheck')
+    await send_scorecheck_command(update, context)
 
 
 async def notify_dispatcher(update, context):

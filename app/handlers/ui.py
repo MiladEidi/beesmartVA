@@ -12,11 +12,15 @@ from app.models import User
 from app.services.auth import resolve_actor, resolve_actor_private
 from app.services.drafts import submit_draft
 from app.services.followups import create_connection, pending_followups
-from app.services.hours import get_user, log_hours
+from app.services.hours import get_user, log_hours, submit_hours
 from app.services.permissions import has_manager_access
+from app.services.reports import executive_summary, monthly_report, weekly_report
+from app.services.scores import score_history
 from app.services.tasks import assign_task, complete_task, create_task, flag_task, list_open_tasks
-from app.services.users import add_or_update_user, get_role_users, get_user_by_internal_id, set_supervisor
-from app.utils.dates import parse_date_maybe
+from app.services.users import add_or_update_user, decrypt_hourly_rate, get_client_by_chat_id, get_role_users, get_user_by_internal_id, set_supervisor
+from app.utils.dates import parse_date_maybe, week_start_for
+from app.utils.formatters import render_scores, render_timesheet_table
+from app.utils.telegram import timesheet_supervisor_keyboard
 
 TOPIC_GUIDES: dict = {}  # populated lazily to avoid circular import
 
@@ -191,28 +195,51 @@ async def ui_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                     reply_markup=InlineKeyboardMarkup([[_back_row()[0]]]),
                 )
                 return
+            user = await get_user(session, user_id=actor.role_user_id, client_id=actor.client_id)
+            if not user.supervisor:
+                await query.edit_message_text(
+                    '⚠️ No supervisor assigned yet\n\n'
+                    'A supervisor must be assigned before you can submit a timesheet.\n'
+                    'Your hours are safe and will not be lost.\n\n'
+                    'Ask your Manager to run this in the group:\n'
+                    f'  /set supervisor {user.display_id or actor.role_user_id} [supervisor_id]',
+                    reply_markup=InlineKeyboardMarkup([[_back_row()[0]]]),
+                )
+                return
+            timesheet, logs = await submit_hours(session, va_id=actor.role_user_id, client_id=actor.client_id, actor_id=actor.role_user_id, today=date.today())
+            va_name = user.display_name
+            supervisor_tg_id = user.supervisor.telegram_user_id
+            supervisor_name = user.supervisor.display_name
+            timesheet_id = timesheet.id
+            week_start = timesheet.week_start_date
+            rate = decrypt_hourly_rate(user)
+            await session.commit()
+            table = render_timesheet_table(va_name, week_start, logs, rate)
             await query.edit_message_text(
-                'Submit Your Timesheet\n\n'
-                'Step 1 — Verify your hours are complete:\n'
-                '  Type /myweek in the chat to review all logged entries\n\n'
-                'Step 2 — Submit when ready:\n'
-                '  Type /submit hours in the chat\n\n'
-                'The bot sends your timesheet to your supervisor for review.\n'
-                'Tap the guide below for the full approval flow.',
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton('📋 Timesheets Guide', callback_data='ui:guide:timesheets')],
-                    [_back_row()[0]],
-                ]),
+                '📤 Timesheet submitted!\n\n'
+                'Your supervisor has been notified and will review it shortly.',
+                reply_markup=InlineKeyboardMarkup([[_back_row()[0]]]),
             )
+            try:
+                await context.bot.send_message(
+                    chat_id=supervisor_tg_id,
+                    text='📋 A timesheet is ready for your review.\n\n' + table,
+                    reply_markup=timesheet_supervisor_keyboard(timesheet_id),
+                )
+            except Exception:
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=f'⚠️ Could not notify {supervisor_name}.\nAsk them to open a private chat with this bot and send /start, then resubmit.',
+                )
             return
         if action == 'reports':
             await query.edit_message_text(
-                'Reports\n\nChoose a report type:',
+                'Reports\n\nTap a report to generate it now:',
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton('📅 Weekly summary — type /weekly', callback_data='ui:report:weekly')],
-                    [InlineKeyboardButton('📆 Monthly overview — type /monthly', callback_data='ui:report:monthly')],
-                    [InlineKeyboardButton('⭐ Satisfaction scores — type /scores', callback_data='ui:report:scores')],
-                    [InlineKeyboardButton('📊 Full Reports Guide', callback_data='ui:guide:reports')],
+                    [InlineKeyboardButton('📅 Weekly Summary', callback_data='ui:report:weekly')],
+                    [InlineKeyboardButton('📆 Monthly Overview', callback_data='ui:report:monthly')],
+                    [InlineKeyboardButton('⭐ Satisfaction Scores', callback_data='ui:report:scores')],
+                    [InlineKeyboardButton('📊 Reports Guide', callback_data='ui:guide:reports')],
                     [_back_row()[0]],
                 ]),
             )
@@ -220,40 +247,51 @@ async def ui_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         if action == 'report' and len(parts) > 2:
             sub = parts[2]
             if sub == 'all':
+                if not has_manager_access(actor.role):
+                    await query.edit_message_text(
+                        '⛔ Only supervisors and managers can view the executive report.',
+                        reply_markup=InlineKeyboardMarkup([[_back_row()[0]]]),
+                    )
+                    return
+                text = await executive_summary(session, telegram_user_id=update.effective_user.id, include_financials=(actor.role == Role.MANAGER))
+                await context.bot.send_message(chat_id=update.effective_user.id, text=text)
                 await query.edit_message_text(
-                    '📊 Executive Report\n\n'
-                    'Type /report all in the chat to get the full executive summary.\n\n'
-                    'Managers also see financial totals across all VAs.',
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton('📊 Reports Guide', callback_data='ui:guide:reports')],
-                        [_back_row()[0]],
-                    ]),
+                    '📊 Executive report sent to your private chat!',
+                    reply_markup=InlineKeyboardMarkup([[_back_row()[0]]]),
                 )
             elif sub == 'weekly':
+                client = await get_client_by_chat_id(session, update.effective_chat.id)
+                if not client:
+                    await query.edit_message_text('This group is not set up yet.')
+                    return
+                report = await weekly_report(session, client_id=client.id, client_name=client.name, week_start=week_start_for(date.today()))
+                await context.bot.send_message(chat_id=update.effective_chat.id, text=report)
                 await query.edit_message_text(
-                    '📅 Weekly Summary\n\n'
-                    'Type /weekly in the chat to get this week\'s operational summary.\n\n'
-                    'Includes: tasks completed, drafts, connections logged, hours worked.',
+                    '✅ Weekly report posted!',
                     reply_markup=InlineKeyboardMarkup([
                         [InlineKeyboardButton('◀ Back to Reports', callback_data='ui:reports')],
                         [_back_row()[0]],
                     ]),
                 )
             elif sub == 'monthly':
+                client = await get_client_by_chat_id(session, update.effective_chat.id)
+                if not client:
+                    await query.edit_message_text('This group is not set up yet.')
+                    return
+                report = await monthly_report(session, client_id=client.id, client_name=client.name, month_label=date.today().strftime('%B %Y'))
+                await context.bot.send_message(chat_id=update.effective_chat.id, text=report)
                 await query.edit_message_text(
-                    '📆 Monthly Overview\n\n'
-                    'Type /monthly in the chat to get the monthly report.\n\n'
-                    'Includes: monthly totals, trends, and team performance summary.',
+                    '✅ Monthly report posted!',
                     reply_markup=InlineKeyboardMarkup([
                         [InlineKeyboardButton('◀ Back to Reports', callback_data='ui:reports')],
                         [_back_row()[0]],
                     ]),
                 )
             elif sub == 'scores':
+                items = await score_history(session, client_id=actor.client_id)
+                await context.bot.send_message(chat_id=update.effective_chat.id, text=render_scores(items))
                 await query.edit_message_text(
-                    '⭐ Satisfaction Scores\n\n'
-                    'Type /scores in the chat to view the satisfaction score history.\n\n'
-                    'Scores are collected via monthly check-ins and on-demand surveys.',
+                    '✅ Scores posted!',
                     reply_markup=InlineKeyboardMarkup([
                         [InlineKeyboardButton('◀ Back to Reports', callback_data='ui:reports')],
                         [_back_row()[0]],

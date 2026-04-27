@@ -623,15 +623,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             # Group not set up OR user not in a group (private DM)
             msg = (
                 'Welcome to BeeSmartVA!\n\n'
-                'This group has not been set up yet, or you are messaging me privately.\n\n'
-                'Important: all commands must be used inside your team\'s Telegram group,\n'
-                'not in a private chat with the bot.\n\n'
-                'To get started in your group:\n'
-                '  1. Add this bot to your Telegram group\n'
-                '  2. Run /setup in the group with your workspace details\n'
-                '  3. Add team members with /adduser\n\n'
-                'Already a team member? Ask your Manager to add you\n'
-                'to the group, then run /start inside the group.'
+                'Commands must be used inside your team\'s Telegram group — not here.\n\n'
+                'To set up a group:\n'
+                '  1. Add this bot to the group\n'
+                '  2. Run /setup in the group\n'
+                '  3. Add team members with /adduser'
             )
         else:
             # Group exists but user is not registered
@@ -640,8 +636,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 'You are not registered in this group yet.\n\n'
                 'Ask your Manager to add you:\n'
                 '  /adduser [your_telegram_id] VA [Your Name]\n\n'
-                'Your Telegram ID: message @userinfobot to find it.\n\n'
-                'Once added, type /start again here.'
+                'Get your Telegram ID: message @userinfobot\n'
+                'Then run /start here again.'
             )
         await update.message.reply_text(
             msg,
@@ -689,9 +685,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
     else:
         await update.message.reply_text(
-            f'Welcome back, {name}!\n\n'
-            f'You are registered as {role.value}.\n'
-            'Tap Menu below or use the buttons in the keyboard.',
+            f'Hi {name}! You are registered as {role.value}.\n\n'
+            'Use the buttons below, or tap Help & Guide for step-by-step instructions.',
             reply_markup=role_main_keyboard(role),
         )
 

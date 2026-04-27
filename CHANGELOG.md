@@ -4,6 +4,33 @@ All notable changes to BeeSmartVA are recorded here, newest first.
 
 ---
 
+## 2026-04-27 — UX simplification: buttons that work, commands that forgive
+
+The bot already had guided menus — but several key buttons didn't actually do anything. They told users to type a command instead. This pass makes every button in `/menu` complete the action immediately.
+
+### Broken buttons fixed
+- **Submit Timesheet button** (`/menu → Submit Timesheet`) — previously showed "Type `/submit hours` in the chat." Now it **submits the timesheet on the spot**: checks for a supervisor, runs the submission, notifies the supervisor privately, and confirms to the VA in one tap.
+- **Weekly report button** (`/menu → Reports → Weekly Summary`) — previously said "Type `/weekly` in the chat." Now **posts the report to the group immediately**.
+- **Monthly report button** — same fix: generates and posts the monthly report on tap.
+- **Satisfaction Scores button** — same fix: posts scores on tap.
+- **Executive Report button** — same fix: generates and sends the summary to the manager's private chat on tap.
+
+### Command aliases (no more guessing subcommands)
+- `/submit` — now works on its own; `/submit hours` still works too.
+- `/report` — now works on its own; `/report all` still works too.
+- `/send` — now works on its own; `/send scorecheck` still works too.
+
+### Simpler welcome messages
+- **Unregistered user / wrong chat** message: trimmed to the essential steps, less wall-of-text.
+- **Registered user `/start`** reply: shorter greeting, same menu buttons.
+
+### New imports added to `ui.py`
+`submit_hours`, `executive_summary`, `monthly_report`, `weekly_report`, `score_history`, `decrypt_hourly_rate`, `get_client_by_chat_id`, `week_start_for`, `render_scores`, `render_timesheet_table`, `timesheet_supervisor_keyboard`.
+
+**Files changed:** `app/handlers/ui.py`, `app/handlers/common.py`, `app/main.py`
+
+---
+
 ## 2026-04-21 — Rate setting moved to private chat (confidentiality)
 
 VA hourly rates are now set exclusively in a private chat with the bot. Previously, running `/set rate` or using the Set Rate menu in a group chat exposed the VA's salary to every group member.
