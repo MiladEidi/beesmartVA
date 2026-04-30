@@ -1,33 +1,40 @@
 """
-Regex-based voice command router.
+Signal-scoring voice command router.
 
 How it works
 ────────────
-1.  The normalized transcript is tested against every intent's patterns
-    (using re.search — so the phrase can appear anywhere in the sentence).
-2.  The first matching intent wins (intents are ordered most-specific first).
-3.  The intent's `build_args` callable receives the regex match + the full
-    normalized text and returns the list that will be assigned to context.args.
-4.  `route()` returns a RouteResult(handler_fn, args) or None if nothing matched.
+Each intent defines two sets of regex signals:
+
+  required  — ALL patterns in this list must match somewhere in the text.
+               If any required signal is absent → intent score = 0 (skip it).
+
+  boosts    — Each pattern that matches adds +1 to the score.
+               These are optional confirmations that raise confidence.
+
+route() scores every intent against the normalized text and returns the one
+with the highest non-zero score.  Ties are broken by list order (more
+specific intents are listed first).
+
+Why this beats first-match regex
+─────────────────────────────────
+• Word ORDER doesn't matter — signals are tested with re.search anywhere.
+• A single keyword can be enough (required=[r'\bhour\b']).
+• Whisper mishearings that pass phonetic correction still produce partial
+  signal matches, so "luck 1 hour today" still fires log_hours.
+• Adding a new command = adding a new Intent() block. No regex ordering
+  headache.
 
 Adding a new intent
 ───────────────────
-Append an entry to INTENTS:
-
-    Intent(
-        name='my_command',
-        patterns=[r'pattern one', r'pattern two'],
-        handler=my_handler_fn,
-        build_args=lambda m, text: [m.group(1), m.group(2)],
-    )
-
-The patterns list is tried in order; stop on first match.
-`build_args` receives (match_object | None, full_normalized_text).
-When you don't need capture groups, just ignore `m`.
+Append an Intent() to _INTENT_SPECS with:
+  required  — what MUST be present (list of regex strings, ALL must hit)
+  boosts    — what HELPS score (list of regex strings, each adds 1)
+  handler   — the existing handler function key (string)
+  build_args— (match_or_none, normalized_text) -> list[str] for context.args
 """
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable
 
 from app.voice.entities import (
@@ -39,27 +46,50 @@ from app.voice.entities import (
     strip_command_words,
 )
 
-# ── Result type ───────────────────────────────────────────────────────────────
+
+# ── Result ────────────────────────────────────────────────────────────────────
 
 @dataclass
 class RouteResult:
     intent: str
     handler: Callable
-    args: list[str]          # exactly what gets set on context.args
+    args: list[str]
 
 
-# ── Helpers for complex arg builders (must be defined before _INTENT_SPECS) ───
+# ── Intent definition ─────────────────────────────────────────────────────────
 
-def _build_hours_args(m, text: str) -> list[str]:
-    """Build args for hours_command: [date, hours, ...note_words]"""
+@dataclass
+class Intent:
+    name: str
+    required: list[str]          # ALL must match
+    boosts: list[str]            # each match adds +1
+    handler_key: str
+    build_args: Callable         # (text: str) -> list[str]
+    _req_compiled: list = field(default_factory=list, repr=False)
+    _boost_compiled: list = field(default_factory=list, repr=False)
+
+    def compile(self):
+        self._req_compiled = [re.compile(p, re.IGNORECASE) for p in self.required]
+        self._boost_compiled = [re.compile(p, re.IGNORECASE) for p in self.boosts]
+
+    def score(self, text: str) -> int:
+        """Return 0 if any required signal is absent, else 1 + boost count."""
+        if not all(p.search(text) for p in self._req_compiled):
+            return 0
+        return 1 + sum(1 for p in self._boost_compiled if p.search(text))
+
+
+# ── Arg builders ──────────────────────────────────────────────────────────────
+
+def _hours_args(text: str) -> list[str]:
     hours = extract_hours(text)
     day = extract_date(text) or 'today'
     note = strip_command_words(
         text,
-        'log', 'add', 'record', 'worked', 'clocked', 'hours', 'hour',
-        'today', 'yesterday', 'monday', 'tuesday', 'wednesday', 'thursday',
-        'friday', 'saturday', 'sunday', 'for', 'on',
-        *(hours,) if hours else (),
+        'log', 'add', 'record', 'work', 'worked', 'clock', 'clocked',
+        'hours', 'hour', 'today', 'yesterday',
+        'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
+        'for', 'on', *(hours,) if hours else (),
     )
     args = [day, hours or '0']
     if note:
@@ -67,8 +97,7 @@ def _build_hours_args(m, text: str) -> list[str]:
     return args
 
 
-def _build_draft_args(m, text: str) -> list[str]:
-    """Build args for draft_command: [platform, ...content_words]"""
+def _draft_args(text: str) -> list[str]:
     platform = extract_platform(text)
     content = strip_command_words(
         text,
@@ -78,36 +107,351 @@ def _build_draft_args(m, text: str) -> list[str]:
     return [platform] + content.split()
 
 
+def _first_number_args(text: str) -> list[str]:
+    n = extract_number(text)
+    return [n] if n else []
+
+
+def _two_number_args(text: str) -> list[str]:
+    return extract_all_numbers(text)[:2]
+
+
+def _remainder_args(text: str, *strip: str) -> list[str]:
+    return strip_command_words(text, *strip).split()
+
+
 # ── Intent registry ───────────────────────────────────────────────────────────
+# Order matters only for tie-breaking. Put more specific intents first.
 
-@dataclass
-class Intent:
-    name: str
-    patterns: list[str]
-    handler: Callable
-    build_args: Callable      # (re.Match | None, normalized_text) -> list[str]
-    _compiled: list = None
+_INTENT_SPECS = [
 
-    def compile(self):
-        self._compiled = [re.compile(p, re.IGNORECASE) for p in self.patterns]
+    # ── Tasks ─────────────────────────────────────────────────────────────────
 
-    def match(self, text: str):
-        for pat in self._compiled:
-            m = pat.search(text)
-            if m:
-                return m
-        return None
+    # "done 5", "task 5 done", "mark 5 complete" — needs BOTH a number AND done-word
+    Intent(
+        name='done_task',
+        required=[r'\b(?:done|complete|finish(?:ed)?|completed)\b', r'\b\d+\b'],
+        boosts=[r'\btask\b', r'\bmark\b', r'\bset\b'],
+        handler_key='done_command',
+        build_args=_first_number_args,
+    ),
+
+    # "can't do task 5 skill", "cantdo 5 time because …"
+    Intent(
+        name='cantdo_task',
+        required=[r"\b(?:can'?t|cannot|can\s+not|cantdo)\b", r'\b\d+\b'],
+        boosts=[r'\btask\b', r'\b(?:skill|time)\b'],
+        handler_key='cantdo_command',
+        build_args=lambda t: (
+            lambda nums, reason: nums[:1] + ([reason] if reason else [])
+        )(
+            extract_all_numbers(t),
+            next(iter(re.findall(r'\b(skill|time)\b', t, re.I)), None),
+        ),
+    ),
+
+    # "assign task 3 to user 7"
+    Intent(
+        name='assign_task',
+        required=[r'\bassign\b', r'\b\d+\b'],
+        boosts=[r'\btask\b', r'\bto\b', r'\buser\b'],
+        handler_key='assign_command',
+        build_args=_two_number_args,
+    ),
+
+    # "overdue tasks"
+    Intent(
+        name='overdue_tasks',
+        required=[r'\boverdue\b'],
+        boosts=[r'\btask[s]?\b', r'\bshow\b', r'\blist\b'],
+        handler_key='overdue_command',
+        build_args=lambda t: [],
+    ),
+
+    # "flagged tasks", "blocked tasks"
+    Intent(
+        name='flagged_tasks',
+        required=[r'\b(?:flagged|blocked)\b'],
+        boosts=[r'\btask[s]?\b', r'\bshow\b', r'\blist\b'],
+        handler_key='flagged_command',
+        build_args=lambda t: [],
+    ),
+
+    # "create task fix the login bug" — needs "task" but NOT a lone number + done
+    Intent(
+        name='create_task',
+        required=[r'\btask\b'],
+        boosts=[r'\b(?:create|add|new|make|write|log)\b', r'\b(?:for|to)\b'],
+        handler_key='task_command',
+        build_args=lambda t: _remainder_args(
+            t, 'create', 'add', 'new', 'make', 'write', 'log', 'a', 'task', 'to', 'for',
+        ),
+    ),
+
+    # "show tasks", "list tasks", "open tasks", "tasks"
+    Intent(
+        name='list_tasks',
+        required=[r'\btasks\b'],
+        boosts=[r'\b(?:show|list|open|all|current|what|get)\b'],
+        handler_key='tasks_command',
+        build_args=lambda t: [],
+    ),
+
+    # ── Hours ──────────────────────────────────────────────────────────────────
+
+    # "submit hours", "send timesheet"
+    Intent(
+        name='submit_hours',
+        required=[r'\b(?:submit|send)\b', r'\b(?:hours?|timesheet)\b'],
+        boosts=[r'\bmy\b', r'\bweek\b'],
+        handler_key='submit_hours_command',
+        build_args=lambda t: [],
+    ),
+
+    # "my week", "this week's hours", "how many hours this week"
+    Intent(
+        name='my_week',
+        required=[r'\bweek\b'],
+        boosts=[r'\bmy\b', r'\bhours?\b', r'\bthis\b', r'\bhow\s+many\b'],
+        handler_key='myweek_command',
+        build_args=lambda t: [],
+    ),
+
+    # "log 3 hours today for client calls" — needs a number AND hour-word
+    Intent(
+        name='log_hours',
+        required=[r'\b\d+(?:\.\d+)?\b', r'\bhours?\b'],
+        boosts=[
+            r'\b(?:log|add|record|work(?:ed)?|clock(?:ed)?)\b',
+            r'\b(?:today|yesterday|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b',
+            r'\bfor\b',
+        ],
+        handler_key='hours_command',
+        build_args=_hours_args,
+    ),
+
+    # "show timesheets", "pending timesheets"
+    Intent(
+        name='list_timesheets',
+        required=[r'\btimesheets?\b'],
+        boosts=[r'\b(?:show|list|pending)\b'],
+        handler_key='timesheets_command',
+        build_args=lambda t: [],
+    ),
+
+    # ── Check-ins / Escalations ────────────────────────────────────────────────
+
+    # "ask supervisor about X", "I have a question: X"
+    Intent(
+        name='ask_supervisor',
+        required=[r'\b(?:ask|question)\b'],
+        boosts=[r'\b(?:supervisor|manager|about|regarding)\b'],
+        handler_key='ask_command',
+        build_args=lambda t: _remainder_args(t, 'ask', 'supervisor', 'manager', 'about', 'question', 'for', 'a'),
+    ),
+
+    # "flag issue X", "I have a problem: X"
+    Intent(
+        name='flag_issue',
+        required=[r'\b(?:flag|problem|issue|blocker|blocked)\b'],
+        boosts=[r'\b(?:raise|report|have|there)\b'],
+        handler_key='flag_command',
+        build_args=lambda t: _remainder_args(t, 'flag', 'issue', 'problem', 'blocker', 'blocked', 'raise', 'report', 'a', 'have'),
+    ),
+
+    # "confirm whether X", "need approval for X"
+    Intent(
+        name='confirm_request',
+        required=[r'\b(?:confirm|approve|approval|confirmation)\b'],
+        boosts=[r'\b(?:supervisor|manager|whether|need|get)\b'],
+        handler_key='confirm_command',
+        build_args=lambda t: _remainder_args(t, 'confirm', 'approve', 'approval', 'confirmation', 'supervisor', 'manager', 'whether', 'need', 'get', 'a'),
+    ),
+
+    # "notify client: X", "tell the client X"
+    Intent(
+        name='notify_client',
+        required=[r'\b(?:notify|message|tell)\b', r'\bclient\b'],
+        boosts=[r'\b(?:send|about)\b'],
+        handler_key='notify_client_command',
+        build_args=lambda t: _remainder_args(t, 'notify', 'message', 'tell', 'send', 'the', 'client', 'about', 'a'),
+    ),
+
+    # "stats", "team dashboard", "how is the team doing"
+    Intent(
+        name='stats',
+        required=[r'\b(?:stats|dashboard)\b'],
+        boosts=[r'\b(?:team|show|how)\b'],
+        handler_key='stats_command',
+        build_args=lambda t: [],
+    ),
+
+    # ── Follow-ups ────────────────────────────────────────────────────────────
+
+    # "new connection John on LinkedIn"
+    Intent(
+        name='new_connection',
+        required=[r'\bconnect(?:ion|ed)?\b'],
+        boosts=[r'\b(?:new|add|log)\b', r'\b(?:linkedin|twitter|instagram|facebook|email)\b'],
+        handler_key='connection_command',
+        build_args=lambda t: _remainder_args(t, 'new', 'add', 'log', 'connection', 'connected', 'with', 'on'),
+    ),
+
+    # "show follow-ups", "who do I need to follow up"
+    Intent(
+        name='list_followups',
+        required=[r'\bfollow.?ups?\b'],
+        boosts=[r'\b(?:show|list|pending|who|any)\b'],
+        handler_key='followups_command',
+        build_args=lambda t: [],
+    ),
+
+    # "follow-up done with John", "followed up with John"
+    Intent(
+        name='follow_done',
+        required=[r'\bfollow(?:ed)?\s*(?:up)?\b', r'\b(?:done|complete|finished)\b'],
+        boosts=[r'\bwith\b'],
+        handler_key='followdone_command',
+        build_args=lambda t: _remainder_args(t, 'follow', 'up', 'followed', 'done', 'complete', 'finished', 'with'),
+    ),
+
+    # "John replied", "got a reply from Sarah"
+    Intent(
+        name='replied',
+        required=[r'\b(?:replied|reply)\b'],
+        boosts=[r'\b(?:from|got|response)\b'],
+        handler_key='replied_command',
+        build_args=lambda t: _remainder_args(t, 'replied', 'reply', 'from', 'got', 'a', 'response'),
+    ),
+
+    # "meeting booked with John", "John is booked"
+    Intent(
+        name='booked',
+        required=[r'\bbooked?\b'],
+        boosts=[r'\b(?:meeting|call|with)\b'],
+        handler_key='booked_command',
+        build_args=lambda t: _remainder_args(t, 'booked', 'book', 'meeting', 'call', 'with', 'a'),
+    ),
+
+    # "no response from John", "John didn't respond"
+    Intent(
+        name='no_response',
+        required=[r'\b(?:no\s+response|not\s+respond|noresponse|didn.?t\s+respond)\b'],
+        boosts=[r'\b(?:from|close)\b'],
+        handler_key='noresponse_command',
+        build_args=lambda t: _remainder_args(t, 'no', 'response', 'noresponse', 'not', 'respond', "didn't", 'didnt', 'from', 'close'),
+    ),
+
+    # ── Drafts ────────────────────────────────────────────────────────────────
+
+    # "list drafts", "show my drafts"
+    Intent(
+        name='list_drafts',
+        required=[r'\bdrafts\b'],
+        boosts=[r'\b(?:show|list|my)\b'],
+        handler_key='drafts_command',
+        build_args=lambda t: [],
+    ),
+
+    # "mark draft ABC as posted", "posted ABC"
+    Intent(
+        name='mark_posted',
+        required=[r'\bposted\b'],
+        boosts=[r'\b(?:draft|mark)\b'],
+        handler_key='posted_command',
+        build_args=lambda t: _remainder_args(t, 'mark', 'draft', 'posted', 'as'),
+    ),
+
+    # "create a LinkedIn draft: …"  (singular 'draft')
+    Intent(
+        name='create_draft',
+        required=[r'\bdraft\b'],
+        boosts=[r'\b(?:create|write|new|submit)\b', r'\b(?:linkedin|email|instagram|social)\b'],
+        handler_key='draft_command',
+        build_args=_draft_args,
+    ),
+
+    # ── Reports ───────────────────────────────────────────────────────────────
+
+    Intent(
+        name='weekly_report',
+        required=[r'\bweekly\b'],
+        boosts=[r'\b(?:report|summary|generate|show)\b'],
+        handler_key='weekly_command',
+        build_args=lambda t: [],
+    ),
+
+    Intent(
+        name='monthly_report',
+        required=[r'\bmonthly\b'],
+        boosts=[r'\b(?:report|summary|overview|generate|show)\b'],
+        handler_key='monthly_command',
+        build_args=lambda t: [],
+    ),
+
+    Intent(
+        name='full_report',
+        required=[r'\breport\b'],
+        boosts=[r'\b(?:full|executive|complete|overall|all)\b'],
+        handler_key='report_all_command',
+        build_args=lambda t: [],
+    ),
+
+    # ── Scores ────────────────────────────────────────────────────────────────
+
+    Intent(
+        name='send_scorecheck',
+        required=[r'\b(?:scorecheck|satisfaction)\b', r'\b(?:send|ask|check)\b'],
+        boosts=[r'\bclient\b'],
+        handler_key='send_scorecheck_command',
+        build_args=lambda t: [],
+    ),
+
+    Intent(
+        name='show_scores',
+        required=[r'\bscores?\b'],
+        boosts=[r'\b(?:show|list|satisfaction|client|ratings?)\b'],
+        handler_key='scores_command',
+        build_args=lambda t: [],
+    ),
+
+    # ── Info / Meta ───────────────────────────────────────────────────────────
+
+    Intent(
+        name='profile',
+        required=[r'\bprofile\b'],
+        boosts=[r'\b(?:show|my|who)\b'],
+        handler_key='profile_command',
+        build_args=lambda t: [],
+    ),
+
+    Intent(
+        name='help',
+        required=[r'\bhelp\b'],
+        boosts=[r'\b(?:what|can|commands?)\b'],
+        handler_key='help_command',
+        build_args=lambda t: [],
+    ),
+
+    Intent(
+        name='menu',
+        required=[r'\bmenu\b'],
+        boosts=[r'\b(?:open|show)\b'],
+        handler_key='menu_command',
+        build_args=lambda t: [],
+    ),
+]
 
 
-# Lazy import of handlers to avoid circular imports at module load
-def _handlers():
+# ── Handler registry (lazy, avoids circular imports) ─────────────────────────
+
+def _load_handlers() -> dict[str, Callable]:
     from app.handlers.tasks import (
         task_command, tasks_command, done_command,
         cantdo_command, assign_command, overdue_command, flagged_command,
     )
     from app.handlers.hours import (
-        hours_command, myweek_command, submit_hours_command,
-        timesheets_command,
+        hours_command, myweek_command, submit_hours_command, timesheets_command,
     )
     from app.handlers.checkins import (
         ask_command, flag_command, confirm_command,
@@ -120,334 +464,44 @@ def _handlers():
     from app.handlers.drafts import draft_command, drafts_command, posted_command
     from app.handlers.reports import weekly_command, monthly_command, report_all_command
     from app.handlers.scores import scores_command, send_scorecheck_command
-    from app.handlers.common import profile_command, help_command, guide_command
+    from app.handlers.common import profile_command, help_command
     from app.handlers.ui import menu_command
     return {k: v for k, v in locals().items()}
 
 
-# ── Intent definitions ────────────────────────────────────────────────────────
-# Ordered most-specific → most-general.
-# Each entry is a tuple:
-#   (name, [patterns], handler_key, build_args_fn)
-
-_INTENT_SPECS = [
-
-    # ── Tasks ─────────────────────────────────────────────────────────────────
-
-    ('done_task', [
-        r'(?:mark|set)?\s*task\s+#?(\d+)\s+(?:as\s+)?(?:done|complete|finished)',
-        r'(?:done|complete|finish)\s+task\s+#?(\d+)',
-        r'task\s+#?(\d+)\s+(?:is\s+)?done',
-        r'#?(\d+)\s+(?:is\s+)?done',
-        r'done\s+#?(\d+)',
-    ], 'done_command',
-        lambda m, t: [m.group(1)]
-    ),
-
-    ('cantdo_task', [
-        r"(?:can't|cannot|can not)\s+do\s+task\s+#?(\d+)\s+(skill|time)(?:\s+(.+))?",
-        r'cantdo\s+#?(\d+)\s+(skill|time)(?:\s+(.+))?',
-        r'flag\s+task\s+#?(\d+)\s+(?:as\s+)?(skill|time)(?:\s+(.+))?',
-    ], 'cantdo_command',
-        lambda m, t: [m.group(1), m.group(2)] + ([m.group(3)] if m.group(3) else [])
-    ),
-
-    ('assign_task', [
-        r'assign\s+task\s+#?(\d+)\s+to\s+(?:user\s+)?#?(\d+)',
-        r'assign\s+#?(\d+)\s+to\s+#?(\d+)',
-    ], 'assign_command',
-        lambda m, t: [m.group(1), m.group(2)]
-    ),
-
-    ('create_task', [
-        r'(?:create|add|new|make|log)\s+(?:a\s+)?task\s+(?:to\s+|for\s+)?(.+)',
-        r'task[:\s]+(.+)',
-        r'to.?do[:\s]+(.+)',
-        r'remind\s+(?:me\s+)?to\s+(.+)',
-    ], 'task_command',
-        lambda m, t: [m.group(1).strip()]
-    ),
-
-    ('list_tasks', [
-        r'(?:show|list|what are|get|display)\s+(?:all\s+)?(?:the\s+)?(?:open\s+)?tasks',
-        r'(?:any|open|current)\s+tasks',
-        r'^tasks\s*$',
-    ], 'tasks_command',
-        lambda m, t: []
-    ),
-
-    ('overdue_tasks', [
-        r'(?:show|list|any|what are)?\s*overdue\s+tasks',
-        r'tasks\s+(?:that are\s+)?overdue',
-    ], 'overdue_command',
-        lambda m, t: []
-    ),
-
-    ('flagged_tasks', [
-        r'(?:show|list|any)?\s*flagged\s+tasks',
-        r'tasks\s+(?:that are\s+)?flagged',
-        r'blocked\s+tasks',
-    ], 'flagged_command',
-        lambda m, t: []
-    ),
-
-    # ── Hours ──────────────────────────────────────────────────────────────────
-
-    ('submit_hours', [
-        r'submit\s+(?:my\s+)?(?:hours|timesheet)',
-        r'send\s+(?:my\s+)?(?:hours|timesheet)',
-    ], 'submit_hours_command',
-        lambda m, t: []
-    ),
-
-    ('my_week', [
-        r'(?:show\s+)?my\s+week',
-        r'(?:this\s+)?week(?:\'s)?\s+hours',
-        r'how\s+many\s+hours\s+this\s+week',
-    ], 'myweek_command',
-        lambda m, t: []
-    ),
-
-    ('log_hours', [
-        r'(?:log|add|record|worked?|clocked?)\s+(\d+(?:\.\d+)?)\s+hours?(?:\s+(today|yesterday|\w+day))?(?:\s+(?:for|on)\s+(.+))?',
-        r'(\d+(?:\.\d+)?)\s+hours?\s+(today|yesterday|\w+day)(?:\s+(?:for|on)?\s*(.+))?',
-        r'(today|yesterday|\w+day)\s+(\d+(?:\.\d+)?)\s+hours?(?:\s+(?:for|on)?\s*(.+))?',
-        r'(?:log|add|record)\s+hours?\s+(\d+(?:\.\d+)?)',
-        r'half\s+an?\s+hour(?:\s+(today|yesterday))?',
-        r'an?\s+hour(?:\s+(today|yesterday))?',
-    ], 'hours_command',
-        _build_hours_args  # defined below
-    ),
-
-    ('list_timesheets', [
-        r'(?:show|list|pending)\s+timesheets?',
-        r'timesheets?\s*$',
-    ], 'timesheets_command',
-        lambda m, t: []
-    ),
-
-    # ── Check-ins / Escalations ────────────────────────────────────────────────
-
-    ('ask_supervisor', [
-        r'ask\s+(?:supervisor\s+)?(?:about\s+|regarding\s+)?(.+)',
-        r'question\s+for\s+supervisor[:\s]+(.+)',
-        r'i\s+have\s+a\s+question[:\s]+(.+)',
-    ], 'ask_command',
-        lambda m, t: [m.group(1).strip()]
-    ),
-
-    ('flag_issue', [
-        r'flag\s+(?:issue|problem|blocker)[:\s]+(.+)',
-        r'(?:raise|report)\s+(?:a\s+)?(?:problem|issue|blocker)[:\s]+(.+)',
-        r'i\s+(?:have\s+a\s+)?(?:problem|issue|blocker)[:\s]+(.+)',
-    ], 'flag_command',
-        lambda m, t: [m.group(1).strip()]
-    ),
-
-    ('confirm_request', [
-        r'confirm\s+(?:with\s+supervisor\s+)?(?:whether\s+)?(.+)',
-        r'(?:need|get)\s+(?:a\s+)?confirmation[:\s]+(.+)',
-        r'(?:please\s+)?(?:approve|confirm)[:\s]+(.+)',
-    ], 'confirm_command',
-        lambda m, t: [m.group(1).strip()]
-    ),
-
-    ('notify_client', [
-        r'notify\s+client[:\s]+(.+)',
-        r'send\s+(?:a\s+)?message\s+to\s+(?:the\s+)?client[:\s]+(.+)',
-        r'message\s+client[:\s]+(.+)',
-        r'tell\s+(?:the\s+)?client[:\s]+(.+)',
-    ], 'notify_client_command',
-        lambda m, t: m.group(1).strip().split()
-    ),
-
-    ('stats', [
-        r'(?:show\s+)?(?:team\s+)?stats',
-        r'(?:team\s+)?dashboard',
-        r'how\s+(?:is|are)\s+(?:the\s+)?team\s+doing',
-    ], 'stats_command',
-        lambda m, t: []
-    ),
-
-    # ── Follow-ups / Connections ───────────────────────────────────────────────
-
-    ('new_connection', [
-        r'(?:new|add|log)\s+connection[:\s]+(\w+(?:\s+\w+)?)\s+(?:on\s+)?(\w+)(?:\s+(.+))?',
-        r'connection[:\s]+(\w+(?:\s+\w+)?)\s+(?:on\s+)?(\w+)',
-        r'connected\s+with\s+(\w+(?:\s+\w+)?)\s+(?:on\s+)?(\w+)',
-    ], 'connection_command',
-        lambda m, t: [m.group(1).strip(), m.group(2).strip()]
-        + (m.group(3).strip().split() if m.lastindex >= 3 and m.group(3) else [])
-    ),
-
-    ('list_followups', [
-        r'(?:show|list|any\s+)?follow.?ups?',
-        r'who\s+(?:do\s+i\s+)?need\s+to\s+follow\s+up',
-    ], 'followups_command',
-        lambda m, t: []
-    ),
-
-    ('follow_done', [
-        r'follow.?up\s+done\s+(?:for\s+|with\s+)?(.+)',
-        r'followed\s+up\s+(?:with\s+)?(.+)',
-        r'followdone\s+(.+)',
-    ], 'followdone_command',
-        lambda m, t: [m.group(1).strip()]
-    ),
-
-    ('replied', [
-        r'(.+)\s+(?:has\s+)?replied',
-        r'(?:got\s+a\s+)?reply\s+from\s+(.+)',
-        r'replied\s+(.+)',
-    ], 'replied_command',
-        lambda m, t: [m.group(1).strip()]
-    ),
-
-    ('booked', [
-        r'(?:meeting|call)\s+booked\s+(?:with\s+)?(.+)',
-        r'booked\s+(?:meeting\s+)?(?:with\s+)?(.+)',
-        r'(.+)\s+(?:is\s+)?booked',
-    ], 'booked_command',
-        lambda m, t: [m.group(1).strip()]
-    ),
-
-    ('no_response', [
-        r'no\s+response\s+from\s+(.+)',
-        r'(.+)\s+(?:did\s+)?not\s+respond',
-        r'noresponse\s+(.+)',
-        r'close\s+follow.?up\s+(?:for\s+)?(.+)',
-    ], 'noresponse_command',
-        lambda m, t: [m.group(1).strip()]
-    ),
-
-    # ── Drafts ────────────────────────────────────────────────────────────────
-
-    ('create_draft', [
-        r'(?:create|write|new|submit)\s+(?:a\s+)?(?:linkedin|email|instagram|social)?\s*draft[:\s]+(.+)',
-        r'draft\s+(?:for\s+)?(?:linkedin|email|instagram)[:\s]+(.+)',
-        r'draft[:\s]+(.+)',
-    ], 'draft_command',
-        _build_draft_args   # defined below
-    ),
-
-    ('list_drafts', [
-        r'(?:show|list|my)\s+drafts?',
-        r'drafts?\s*$',
-    ], 'drafts_command',
-        lambda m, t: []
-    ),
-
-    ('mark_posted', [
-        r'(?:mark|draft)?\s*(?:draft\s+)?(\w+)\s+(?:as\s+)?posted',
-        r'posted\s+(\w+)',
-    ], 'posted_command',
-        lambda m, t: [m.group(1)]
-    ),
-
-    # ── Reports ───────────────────────────────────────────────────────────────
-
-    ('weekly_report', [
-        r'(?:generate|show|give me)?\s*weekly\s+(?:summary|report)',
-        r'weekly\s*$',
-    ], 'weekly_command',
-        lambda m, t: []
-    ),
-
-    ('monthly_report', [
-        r'(?:generate|show|give me)?\s*monthly\s+(?:summary|report|overview)',
-        r'monthly\s*$',
-    ], 'monthly_command',
-        lambda m, t: []
-    ),
-
-    ('full_report', [
-        r'(?:full|executive|complete|overall)\s+report',
-        r'report\s+all',
-        r'^report\s*$',
-    ], 'report_all_command',
-        lambda m, t: []
-    ),
-
-    # ── Scores ────────────────────────────────────────────────────────────────
-
-    ('show_scores', [
-        r'(?:show\s+)?(?:satisfaction\s+)?scores?',
-        r'client\s+(?:satisfaction\s+)?ratings?',
-    ], 'scores_command',
-        lambda m, t: []
-    ),
-
-    ('send_scorecheck', [
-        r'send\s+(?:satisfaction\s+)?(?:check|survey|scorecheck)',
-        r'(?:ask|check)\s+client\s+satisfaction',
-    ], 'send_scorecheck_command',
-        lambda m, t: []
-    ),
-
-    # ── Info / Meta ───────────────────────────────────────────────────────────
-
-    ('profile', [
-        r'(?:show\s+)?my\s+profile',
-        r'who\s+am\s+i',
-        r'^profile\s*$',
-    ], 'profile_command',
-        lambda m, t: []
-    ),
-
-    ('help', [
-        r'^help\s*$',
-        r'(?:what\s+can\s+(?:you|i)\s+do|what\s+commands)',
-    ], 'help_command',
-        lambda m, t: []
-    ),
-
-    ('menu', [
-        r'^menu\s*$',
-        r'(?:open|show)\s+menu',
-    ], 'menu_command',
-        lambda m, t: []
-    ),
-]
-
-
-# ── Build the registry ────────────────────────────────────────────────────────
-
-def _build_intents() -> list[Intent]:
-    h = _handlers()
-    intents = []
-    for name, patterns, handler_key, build_args in _INTENT_SPECS:
-        fn = h.get(handler_key)
-        if fn is None:
-            continue
-        intent = Intent(name=name, patterns=patterns, handler=fn, build_args=build_args)
-        intent.compile()
-        intents.append(intent)
-    return intents
-
-
-_INTENTS: list[Intent] | None = None
+_handlers: dict | None = None
+_compiled: bool = False
 
 
 def _get_intents() -> list[Intent]:
-    global _INTENTS
-    if _INTENTS is None:
-        _INTENTS = _build_intents()
-    return _INTENTS
+    global _handlers, _compiled
+    if not _compiled:
+        _handlers = _load_handlers()
+        for intent in _INTENT_SPECS:
+            intent.handler = _handlers[intent.handler_key]
+            intent.compile()
+        _compiled = True
+    return _INTENT_SPECS
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def route(normalized_text: str) -> RouteResult | None:
     """
-    Match normalized_text against all intents.
-
-    Returns a RouteResult on the first match, or None if nothing matched.
-    The caller should assign result.args to context.args and then call
-    result.handler(update, context).
+    Score every intent against normalized_text.
+    Returns the highest-scoring RouteResult, or None if nothing matched.
     """
+    best_score = 0
+    best: Intent | None = None
+
     for intent in _get_intents():
-        m = intent.match(normalized_text)
-        if m is not None:
-            args = intent.build_args(m, normalized_text)
-            return RouteResult(intent=intent.name, handler=intent.handler, args=args)
-    return None
+        s = intent.score(normalized_text)
+        if s > best_score:
+            best_score = s
+            best = intent
+
+    if best is None:
+        return None
+
+    args = best.build_args(normalized_text)
+    return RouteResult(intent=best.name, handler=best.handler, args=args)

@@ -90,30 +90,31 @@ def extract_date(text: str) -> str | None:
 def extract_hours(text: str) -> str | None:
     """
     Return hours as a string float, e.g. '3', '2.5', '0.5'.
-    Handles:
-      - "3 hours" / "3.5 hours"
-      - "half an hour" → '0.5'
-      - "an hour" / "one hour" → '1'
-      - "an hour and a half" → '1.5'
+
+    Assumes normalizer has already converted word numbers to digits
+    ("one" → "1", "half an hour" → "0.5 hours"), but also handles
+    the raw forms as a fallback.
     """
     t = text.lower()
 
-    if re.search(r'\bhalf\s+an?\s+hour\b', t):
-        return '0.5'
+    # Fallback word forms (in case normalizer wasn't applied)
     if re.search(r'\ban?\s+hour\s+and\s+a\s+half\b', t):
         return '1.5'
-    if re.search(r'\ban?\s+hour\b', t) or re.search(r'\bone\s+hour\b', t):
+    if re.search(r'\bhalf\s+an?\s+hour\b', t):
+        return '0.5'
+    if re.search(r'\ban?\s+hour\b', t):
         return '1'
 
+    # Digit adjacent to "hour(s)" — most reliable signal
     m = re.search(r'(\d+(?:\.\d+)?)\s*hours?', t)
     if m:
         return m.group(1)
 
-    # bare number immediately adjacent to hours context
+    # Digit alone in an hours context (e.g. "log 3 today")
     m = re.search(r'\b(\d+(?:\.\d+)?)\b', t)
     if m:
         val = float(m.group(1))
-        if 0 < val <= 24:  # sanity check: plausible work hours
+        if 0 < val <= 24:
             return m.group(1)
 
     return None
