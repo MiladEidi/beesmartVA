@@ -24,6 +24,7 @@ from app.handlers.callbacks import draft_callback, score_callback, timesheet_cal
 from app.handlers.checkins import ask_command, confirm_command, flag_command, notify_client_command, stats_command
 from app.handlers.common import contacts_command, credentials_command, guide_command, help_command, howto_command, links_command, prefs_command, profile_command, schedule_command, start_command
 from app.handlers.ui import flow_message_handler, menu_command, ui_callback
+from app.voice.handler import voice_message_handler
 from app.handlers.drafts import draft_command, drafts_command, posted_command
 from app.handlers.followups import booked_command, connection_command, followdone_command, followups_command, noresponse_command, replied_command
 from app.handlers.hours import hours_command, invoice_sent_command, invoice_summary_command, myweek_command, rate_command, submit_hours_command, timesheets_command
@@ -71,6 +72,7 @@ def build_application() -> Application:
     application.add_handler(CallbackQueryHandler(draft_callback, pattern=r'^df:'))
     application.add_handler(CallbackQueryHandler(score_callback, pattern=r'^sc:'))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, flow_message_handler))
+    application.add_handler(MessageHandler(filters.VOICE, voice_message_handler))
     return application
 
 

@@ -13,3 +13,4 @@ python-dotenv>=1.1,<2.0
 httpx>=0.28,<0.29
 pytest>=8.4,<9.0
 pytest-asyncio>=0.23,<0.24
+faster-whisper>=1.0,<2.0
