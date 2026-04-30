@@ -4,6 +4,72 @@ All notable changes to BeeSmartVA are recorded here, newest first.
 
 ---
 
+## 2026-04-30 — Voice command support via faster-whisper + signal-scoring router
+
+Users can now send voice messages to the bot and have them executed as commands — no typing required.
+
+### Architecture (`app/voice/`)
+
+A new `app/voice/` package handles the full speech-to-command pipeline:
+
+| File | Role |
+|------|------|
+| `transcriber.py` | Downloads the OGG/OPUS file from Telegram, converts to 16 kHz mono WAV via `ffmpeg`, and transcribes with `faster-whisper` (runs locally, no external API) |
+| `normalizer.py` | Cleans the raw transcript: phonetic corrections, word-number conversion, filler-word removal, punctuation stripping |
+| `entities.py` | Extracts typed values from free-form speech: dates, hours, task IDs, user IDs, draft platforms |
+| `router.py` | Signal-scoring intent matcher — maps cleaned text to an existing handler function and its `context.args` list |
+| `handler.py` | Telegram `MessageHandler(filters.VOICE)` entry point registered in `main.py` |
+
+### Normalizer — two preprocessing passes
+
+**Phonetic corrections** run first to fix common Whisper mishearings before any matching:
+- `luck / lock / lag / lug` → `log`
+- `tax / tusk / tass` → `task`
+- `dun / don / dawn` → `done`
+- `ours / powers` → `hours`
+- `conform` → `confirm`, `booked` → `book`, `reply` → `replied`, etc.
+
+**Word-number normalisation** converts spelled-out quantities to digits so entity extractors find them reliably:
+- `one / two / three … twelve` → `1 / 2 / 3 … 12`
+- `half an hour` → `0.5 hours`, `an hour and a half` → `1.5 hours`, `an hour` → `1 hour`
+
+### Router — signal-scoring (order-independent)
+
+The first version used sequential regex phrase matching, which required words in a specific order and failed if Whisper substituted a single key word. The router was rewritten to use a scoring system:
+
+- Each intent defines **required signals** (regex patterns — ALL must be present anywhere in the text) and **boost signals** (each match adds +1 to the score).
+- Every intent is scored; the highest scorer wins.
+- Word order is irrelevant. "1 hour today log for client calls" and "log 1 hour today for client calls" both score the same for `log_hours`.
+- A single keyword (e.g. `hour`) is enough to satisfy a required signal even if surrounding words were misheard.
+
+33 intents cover the full command surface: tasks, hours, check-ins, follow-ups, drafts, reports, scores, and meta commands.
+
+### Handler fix — monkey-patching removed
+
+The initial handler attempted to prefix every bot reply with the transcript by replacing `msg.reply_text` with a closure at runtime. `telegram.Message` in python-telegram-bot v22 uses `__slots__`, so assigning an instance attribute on it raised `AttributeError` **outside** the `try` block, meaning the actual command handler was never called and the user received no response. Fixed by sending a plain "🎙 Heard: …" message before executing the handler, then calling the handler normally.
+
+### Usage
+
+Send a voice message. The bot replies with what it heard, then executes the command:
+```
+🎙 Heard: "Log 3 hours today for client calls"
+✅ Logged 3h for 2026-04-30.
+```
+
+If the intent is not recognised, the bot shows the transcript and example commands so the user can diagnose and retry.
+
+### Setup (server)
+```bash
+sudo apt install ffmpeg
+pip install faster-whisper
+```
+
+Optional `.env` variables: `WHISPER_MODEL` (default `base`), `WHISPER_DEVICE` (default `cpu`), `WHISPER_LANG` (default `en`).
+
+**Files changed:** `app/voice/__init__.py`, `app/voice/transcriber.py`, `app/voice/normalizer.py`, `app/voice/entities.py`, `app/voice/router.py`, `app/voice/handler.py`, `app/main.py`, `requirements.txt`
+
+---
+
 ## 2026-04-27 — Setup parser hardening, timezone tolerance, guided invoice flow
 
 ### Setup command parser fix (`admin.py`)
