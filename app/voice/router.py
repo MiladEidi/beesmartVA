@@ -30,7 +30,7 @@ Append an Intent() to _INTENT_SPECS with:
   required  — what MUST be present (list of regex strings, ALL must hit)
   boosts    — what HELPS score (list of regex strings, each adds 1)
   handler   — the existing handler function key (string)
-  build_args— (match_or_none, normalized_text) -> list[str] for context.args
+  build_args— (normalized_text) -> list[str] for context.args
 """
 
 import re
@@ -86,10 +86,16 @@ def _hours_args(text: str) -> list[str]:
     day = extract_date(text) or 'today'
     note = strip_command_words(
         text,
+        # leading polite words
+        'i', 'want', 'to', 'please', 'a', 'the',
+        # command verbs
         'log', 'add', 'record', 'work', 'worked', 'clock', 'clocked',
+        # time words — stripped so only the actual note remains
         'hours', 'hour', 'today', 'yesterday',
         'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
-        'for', 'on', *(hours,) if hours else (),
+        'for', 'on',
+        # strip the extracted hours digit itself
+        *(hours,) if hours else (),
     )
     args = [day, hours or '0']
     if note:
@@ -101,8 +107,8 @@ def _draft_args(text: str) -> list[str]:
     platform = extract_platform(text)
     content = strip_command_words(
         text,
-        'create', 'write', 'new', 'submit', 'draft', 'a', 'for',
-        'linkedin', 'email', 'instagram', 'social', 'other',
+        'create', 'write', 'new', 'submit', 'draft', 'a', 'for', 'the',
+        'linkedin', 'email', 'instagram', 'facebook', 'twitter', 'tiktok', 'social', 'other',
     )
     return [platform] + content.split()
 
@@ -199,7 +205,7 @@ _INTENT_SPECS = [
 
     # ── Hours ──────────────────────────────────────────────────────────────────
 
-    # "submit hours", "send timesheet"
+    # "submit hours", "send timesheet", "send my hours"
     Intent(
         name='submit_hours',
         required=[r'\b(?:submit|send)\b', r'\b(?:hours?|timesheet)\b'],
@@ -239,6 +245,17 @@ _INTENT_SPECS = [
         build_args=lambda t: [],
     ),
 
+    # ── Rate ──────────────────────────────────────────────────────────────────
+
+    # "what's my rate", "my hourly rate", "show my rate"
+    Intent(
+        name='my_rate',
+        required=[r'\brate\b'],
+        boosts=[r'\b(?:my|hourly|what|show|check|salary)\b'],
+        handler_key='rate_command',
+        build_args=lambda t: [],
+    ),
+
     # ── Check-ins / Escalations ────────────────────────────────────────────────
 
     # "ask supervisor about X", "I have a question: X"
@@ -250,7 +267,7 @@ _INTENT_SPECS = [
         build_args=lambda t: _remainder_args(t, 'ask', 'supervisor', 'manager', 'about', 'question', 'for', 'a'),
     ),
 
-    # "flag issue X", "I have a problem: X"
+    # "flag issue X", "I have a problem: X", "there's a blocker"
     Intent(
         name='flag_issue',
         required=[r'\b(?:flag|problem|issue|blocker|blocked)\b'],
@@ -268,7 +285,7 @@ _INTENT_SPECS = [
         build_args=lambda t: _remainder_args(t, 'confirm', 'approve', 'approval', 'confirmation', 'supervisor', 'manager', 'whether', 'need', 'get', 'a'),
     ),
 
-    # "notify client: X", "tell the client X"
+    # "notify client: X", "tell the client X", "message the client X"
     Intent(
         name='notify_client',
         required=[r'\b(?:notify|message|tell)\b', r'\bclient\b'],
@@ -292,7 +309,7 @@ _INTENT_SPECS = [
     Intent(
         name='new_connection',
         required=[r'\bconnect(?:ion|ed)?\b'],
-        boosts=[r'\b(?:new|add|log)\b', r'\b(?:linkedin|twitter|instagram|facebook|email)\b'],
+        boosts=[r'\b(?:new|add|log)\b', r'\b(?:linkedin|twitter|instagram|facebook|tiktok|email)\b'],
         handler_key='connection_command',
         build_args=lambda t: _remainder_args(t, 'new', 'add', 'log', 'connection', 'connected', 'with', 'on'),
     ),
@@ -315,40 +332,41 @@ _INTENT_SPECS = [
         build_args=lambda t: _remainder_args(t, 'follow', 'up', 'followed', 'done', 'complete', 'finished', 'with'),
     ),
 
-    # "John replied", "got a reply from Sarah"
+    # "John replied", "got a reply from Sarah", "Sarah responded", "wrote back"
     Intent(
         name='replied',
-        required=[r'\b(?:replied|reply)\b'],
-        boosts=[r'\b(?:from|got|response)\b'],
+        required=[r'\b(?:replied|reply|responded|response|wrote\s+back|got\s+back)\b'],
+        boosts=[r'\b(?:from|got|back)\b'],
         handler_key='replied_command',
-        build_args=lambda t: _remainder_args(t, 'replied', 'reply', 'from', 'got', 'a', 'response'),
+        build_args=lambda t: _remainder_args(t, 'replied', 'reply', 'responded', 'response', 'wrote', 'got', 'back', 'from', 'a'),
     ),
 
-    # "meeting booked with John", "John is booked"
+    # "meeting booked with John", "John is booked", "scheduled a call with John"
     Intent(
         name='booked',
-        required=[r'\bbooked?\b'],
-        boosts=[r'\b(?:meeting|call|with)\b'],
+        required=[r'\b(?:booked?|scheduled?\s+(?:a\s+)?(?:meeting|call|appointment))\b'],
+        boosts=[r'\b(?:meeting|call|appointment|with)\b'],
         handler_key='booked_command',
-        build_args=lambda t: _remainder_args(t, 'booked', 'book', 'meeting', 'call', 'with', 'a'),
+        build_args=lambda t: _remainder_args(t, 'booked', 'book', 'scheduled', 'schedule', 'meeting', 'call', 'appointment', 'with', 'a'),
     ),
 
-    # "no response from John", "John didn't respond"
+    # "no response from John", "John didn't respond", "ghosted", "no reply from"
     Intent(
         name='no_response',
-        required=[r'\b(?:no\s+response|not\s+respond|noresponse|didn.?t\s+respond)\b'],
+        required=[r'\b(?:no\s+response|no\s+reply|noresponse|didn.?t\s+(?:respond|reply)|ghosted|haven.?t\s+heard|not\s+respond)\b'],
         boosts=[r'\b(?:from|close)\b'],
         handler_key='noresponse_command',
-        build_args=lambda t: _remainder_args(t, 'no', 'response', 'noresponse', 'not', 'respond', "didn't", 'didnt', 'from', 'close'),
+        build_args=lambda t: _remainder_args(t, 'no', 'response', 'reply', 'noresponse', 'not', 'respond', "didn't", 'didnt', "haven't", 'havent', 'heard', 'ghosted', 'from', 'close'),
     ),
 
     # ── Drafts ────────────────────────────────────────────────────────────────
 
     # "list drafts", "show my drafts"
+    # NOTE: uses draft[s]? so it matches even if normalizer didn't fire
     Intent(
         name='list_drafts',
-        required=[r'\bdrafts\b'],
-        boosts=[r'\b(?:show|list|my)\b'],
+        required=[r'\bdraft[s]?\b'],
+        boosts=[r'\b(?:show|list|my|all|pending)\b'],
         handler_key='drafts_command',
         build_args=lambda t: [],
     ),
@@ -362,11 +380,11 @@ _INTENT_SPECS = [
         build_args=lambda t: _remainder_args(t, 'mark', 'draft', 'posted', 'as'),
     ),
 
-    # "create a LinkedIn draft: …"  (singular 'draft')
+    # "create a LinkedIn draft: …"  (singular 'draft', with create/platform boost)
     Intent(
         name='create_draft',
         required=[r'\bdraft\b'],
-        boosts=[r'\b(?:create|write|new|submit)\b', r'\b(?:linkedin|email|instagram|social)\b'],
+        boosts=[r'\b(?:create|write|new|submit)\b', r'\b(?:linkedin|email|instagram|facebook|twitter|tiktok|social)\b'],
         handler_key='draft_command',
         build_args=_draft_args,
     ),
@@ -415,7 +433,54 @@ _INTENT_SPECS = [
         build_args=lambda t: [],
     ),
 
+    # ── Team / Users ──────────────────────────────────────────────────────────
+
+    # "show all users", "list team members", "who's in the group", "groups"
+    Intent(
+        name='list_users',
+        required=[r'\b(?:users?|team|group[s]?|members?|people|roster)\b'],
+        boosts=[r'\b(?:show|list|all|who|registered|everyone)\b'],
+        handler_key='groups_command',
+        build_args=lambda t: [],
+    ),
+
     # ── Info / Meta ───────────────────────────────────────────────────────────
+
+    # "show my schedule", "client schedule", "meeting schedule"
+    Intent(
+        name='show_schedule',
+        required=[r'\bschedule\b'],
+        boosts=[r'\b(?:show|my|client|meeting|upcoming|calendar)\b'],
+        handler_key='schedule_command',
+        build_args=lambda t: [],
+    ),
+
+    # "show links", "booking links", "show booking link", "calendar link"
+    Intent(
+        name='show_links',
+        required=[r'\b(?:links?|booking)\b'],
+        boosts=[r'\b(?:show|my|booking|calendar)\b'],
+        handler_key='links_command',
+        build_args=lambda t: [],
+    ),
+
+    # "contacts", "show contacts", "client contacts"
+    Intent(
+        name='show_contacts',
+        required=[r'\bcontacts?\b'],
+        boosts=[r'\b(?:show|list|my|client)\b'],
+        handler_key='contacts_command',
+        build_args=lambda t: [],
+    ),
+
+    # "my preferences", "show settings", "prefs"
+    Intent(
+        name='show_prefs',
+        required=[r'\b(?:prefs?|preferences?|settings?)\b'],
+        boosts=[r'\b(?:show|my|view)\b'],
+        handler_key='prefs_command',
+        build_args=lambda t: [],
+    ),
 
     Intent(
         name='profile',
@@ -451,7 +516,8 @@ def _load_handlers() -> dict[str, Callable]:
         cantdo_command, assign_command, overdue_command, flagged_command,
     )
     from app.handlers.hours import (
-        hours_command, myweek_command, submit_hours_command, timesheets_command,
+        hours_command, myweek_command, submit_hours_command,
+        timesheets_command, rate_command,
     )
     from app.handlers.checkins import (
         ask_command, flag_command, confirm_command,
@@ -464,7 +530,11 @@ def _load_handlers() -> dict[str, Callable]:
     from app.handlers.drafts import draft_command, drafts_command, posted_command
     from app.handlers.reports import weekly_command, monthly_command, report_all_command
     from app.handlers.scores import scores_command, send_scorecheck_command
-    from app.handlers.common import profile_command, help_command
+    from app.handlers.common import (
+        profile_command, help_command, links_command,
+        contacts_command, schedule_command, prefs_command,
+    )
+    from app.handlers.admin import groups_command
     from app.handlers.ui import menu_command
     return {k: v for k, v in locals().items()}
 

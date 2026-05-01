@@ -24,6 +24,8 @@ _MONTH_NAMES = {
     'jun': 6, 'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12,
 }
 
+_WEEKDAY_PAT = '|'.join(_WEEKDAY_NAMES)
+
 
 def extract_date(text: str) -> str | None:
     """
@@ -33,6 +35,12 @@ def extract_date(text: str) -> str | None:
       - 'YYYY-MM-DD'  (for any specific date mentioned)
 
     Returns None if no date is found (caller should default to 'today').
+
+    Supports:
+      - today / yesterday / the day before yesterday / 2 days ago
+      - last Monday / this Monday / next Monday / on Monday
+      - April 30 / 30 April
+      - ISO dates: 2026-04-30
     """
     t = text.lower()
 
@@ -40,14 +48,32 @@ def extract_date(text: str) -> str | None:
         return 'today'
     if re.search(r'\byesterday\b', t):
         return 'yesterday'
+    if re.search(r'\bday\s+before\s+yesterday\b|2\s+days?\s+ago\b', t):
+        return (date.today() - timedelta(days=2)).strftime('%Y-%m-%d')
 
-    # "last Monday" / "on Monday"
-    m = re.search(
-        r'(?:last\s+)?('
-        + '|'.join(_WEEKDAY_NAMES)
-        + r')\b',
-        t,
-    )
+    # "next Monday" → the coming weekday (always in the future)
+    m = re.search(r'\bnext\s+(' + _WEEKDAY_PAT + r')\b', t)
+    if m:
+        target_wd = _WEEKDAY_NAMES[m.group(1)]
+        today = date.today()
+        days_ahead = (target_wd - today.weekday()) % 7 or 7
+        return (today + timedelta(days=days_ahead)).strftime('%Y-%m-%d')
+
+    # "this Monday" → nearest occurrence of that weekday (past or upcoming this week)
+    m = re.search(r'\bthis\s+(' + _WEEKDAY_PAT + r')\b', t)
+    if m:
+        target_wd = _WEEKDAY_NAMES[m.group(1)]
+        today = date.today()
+        # If that weekday is today or already passed this week, use today's week start
+        days_diff = today.weekday() - target_wd
+        if days_diff >= 0:
+            d = today - timedelta(days=days_diff)
+        else:
+            d = today + timedelta(days=-days_diff)
+        return d.strftime('%Y-%m-%d')
+
+    # "last Monday" / "on Monday" / bare weekday name → most recent past occurrence
+    m = re.search(r'(?:last\s+)?(?:on\s+)?(' + _WEEKDAY_PAT + r')\b', t)
     if m:
         target_wd = _WEEKDAY_NAMES[m.group(1)]
         today = date.today()
@@ -77,7 +103,7 @@ def extract_date(text: str) -> str | None:
         except ValueError:
             pass
 
-    # ISO / numeric: 2026-04-30 or 04/30
+    # ISO / numeric: 2026-04-30
     m = re.search(r'\b(\d{4}-\d{2}-\d{2})\b', t)
     if m:
         return m.group(1)
@@ -135,14 +161,25 @@ def extract_all_numbers(text: str) -> list[str]:
 
 # ── Platform (for /draft) ─────────────────────────────────────────────────────
 
-_PLATFORMS = {'linkedin', 'email', 'instagram', 'other'}
+# Ordered by specificity: longer/rarer names first to avoid substring collisions
+_PLATFORM_PATTERNS = [
+    (r'\blinkedin\b',           'linkedin'),
+    (r'\binstagram\b',          'instagram'),
+    (r'\bfacebook\b',           'facebook'),
+    (r'\btiktok\b',             'tiktok'),
+    (r'\btwitter\b|\btweet\b',  'twitter'),
+    (r'\bx\.?com\b|\bx post\b', 'twitter'),
+    (r'\bemail\b|\bmail\b',     'email'),
+]
+
+_PLATFORM_COMPILED = [(re.compile(p, re.IGNORECASE), name) for p, name in _PLATFORM_PATTERNS]
+
 
 def extract_platform(text: str) -> str:
     """Return a draft platform name, defaulting to 'other'."""
-    t = text.lower()
-    for p in _PLATFORMS:
-        if p in t:
-            return p
+    for pat, name in _PLATFORM_COMPILED:
+        if pat.search(text):
+            return name
     return 'other'
 
 
@@ -150,9 +187,13 @@ def extract_platform(text: str) -> str:
 
 def strip_command_words(text: str, *words: str) -> str:
     """
-    Remove a set of leading command/trigger words from text to leave just
-    the payload.  E.g. strip_command_words('create task fix the login bug', 'create', 'task')
+    Repeatedly strip leading command/trigger words from text to leave just
+    the payload.
+
+    E.g. strip_command_words('create task fix the login bug', 'create', 'task')
     → 'fix the login bug'
+
+    Only strips from the front so content words in the middle are preserved.
     """
     pattern = re.compile(
         r'^\s*(?:' + '|'.join(re.escape(w) for w in words) + r')\s*',

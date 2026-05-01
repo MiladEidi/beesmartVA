@@ -4,6 +4,52 @@ All notable changes to BeeSmartVA are recorded here, newest first.
 
 ---
 
+## 2026-05-01 — Voice system overhaul: bug fixes + 7 new intents + smarter NLP
+
+### Bug fixed
+- **`list_drafts` never matched** — the normalizer was converting "drafts" → "draft" before intent scoring, so "show my drafts" always fell through to `create_draft`. Removed the bad phonetic correction; `list_drafts` now uses `r'\bdraft[s]?\b'` as a safety net.
+
+### normalizer.py — expanded
+- **More phonetic corrections:** `weak`→`week`, `ower`→`hour`, `blob`→`log`, `tas`→`task`, `some bit`→`submit`, `a-sign`→`assign`, `raid`→`rate`, `shedule`→`schedule`, `wrote back`/`got back`→`replied`, `ghosted`/`no reply`/`didn't reply`/`haven't heard`→`no response`
+- **Word numbers 13–90:** thirteen through nineteen, and all tens (twenty, thirty … ninety) — teens handled before tens to avoid partial-match collisions
+- **Compound hour phrases:** already present; ordering now correct (phrases before single words)
+- **Expanded fillers:** `please`, `i want to`, `i need to`, `i have to`, `i'd like to`
+- **Punctuation strip:** now also removes `-`, `–`, `—`, `…`, `:` so Whisper punctuation doesn't bleed into extracted args
+
+### entities.py — expanded
+- **"next Monday"** → returns the upcoming occurrence of that weekday (future)
+- **"this Monday"** → returns the nearest occurrence within the current week
+- **"the day before yesterday" / "2 days ago"** → correct date
+- **Platform extractor** now recognises: `twitter`/`tweet`, `x.com`/`x post`, `facebook`, `tiktok`, `mail` (in addition to existing linkedin / instagram / email / other)
+
+### router.py — 7 new intents + 4 improved
+**New intents (40 total, up from 33):**
+| Intent | Example phrases | Handler |
+|---|---|---|
+| `my_rate` | "what's my rate", "my hourly rate" | `rate_command` |
+| `list_users` | "show all users", "who's in the team", "groups" | `groups_command` |
+| `show_schedule` | "show my schedule", "client schedule" | `schedule_command` |
+| `show_links` | "show links", "booking links", "calendar link" | `links_command` |
+| `show_contacts` | "contacts", "show client contacts" | `contacts_command` |
+| `show_prefs` | "my preferences", "show settings", "prefs" | `prefs_command` |
+
+**Improved intents:**
+- `replied` — now also matches "responded", "wrote back", "got back"
+- `booked` — now also matches "scheduled a meeting/call/appointment"
+- `no_response` — now also matches "no reply", "ghosted", "haven't heard", "didn't reply"
+- `list_drafts` — required pattern broadened to `draft[s]?` (see bug fix above)
+- `_hours_args` — strips more leading words (`i`, `want`, `to`, `please`, `a`, `the`) so note extraction is cleaner for natural speech like "log three hours today for client meeting"
+- New platforms (`twitter`, `facebook`, `tiktok`) added to `_draft_args` strip list
+
+### handler.py — better feedback
+- **Intent label in reply:** after transcribing, the bot now shows `🎙 Heard: "…"\n→ Logging hours…` so users know exactly what action will run
+- **No-match message** is now categorised (Tasks / Hours / Follow-ups / Drafts / Reports & Info) with 15 concrete examples instead of 6
+- No-match message uses Markdown for readability
+
+**Files changed:** `app/voice/normalizer.py`, `app/voice/entities.py`, `app/voice/router.py`, `app/voice/handler.py`
+
+---
+
 ## 2026-04-30 — Voice command support via faster-whisper + signal-scoring router
 
 Users can now send voice messages to the bot and have them executed as commands — no typing required.
