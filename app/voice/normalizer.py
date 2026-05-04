@@ -73,6 +73,30 @@ _PHONETIC = [
     (r'\braid\b',    'rate'),
     # "schedule" — Whisper sometimes hears "shedule"
     (r'\bshedule\b', 'schedule'),
+    # "overdue" — Whisper mishears as "overdo" or two words
+    (r'\boverdo\b',        'overdue'),
+    (r'\bover\s+do\b',     'overdue'),
+    (r'\bover-do\b',       'overdue'),
+    # "monthly" / "weekly" — occasional Whisper mishears
+    (r'\bmonthle\b',       'monthly'),
+    (r'\bweekle\b',        'weekly'),
+    # "linkedin" — Whisper sometimes splits it into two words
+    (r'\blinked\s+in\b',   'linkedin'),
+    (r'\blinked-in\b',     'linkedin'),
+    # "timesheet(s)" — Whisper splits the compound
+    (r'\btime\s+sheets?\b', 'timesheets'),
+    (r'\btime-sheets?\b',   'timesheets'),
+    (r'\btime\s+sheet\b',   'timesheet'),
+    (r'\btime-sheet\b',     'timesheet'),
+    # "scorecheck" — spoken as two words
+    (r'\bscore\s+check\b',  'scorecheck'),
+    (r'\bscore-check\b',    'scorecheck'),
+    # "flagged" — Whisper sometimes drops a 'g'
+    (r'\bflaged\b',         'flagged'),
+    # "connection" — Whisper mishears as "connexion"
+    (r'\bconnexion\b',      'connection'),
+    # "invoice" — "in voice" (ironic Whisper mishear)
+    (r'\bin\s+voice\b',     'invoice'),
     # "draft" keep singular — do NOT convert "drafts"→"draft" (breaks list_drafts)
     # "ask" is already clear
 ]

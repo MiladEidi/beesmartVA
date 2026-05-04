@@ -65,16 +65,21 @@ class Intent:
     boosts: list[str]            # each match adds +1
     handler_key: str
     build_args: Callable         # (text: str) -> list[str]
+    negatives: list[str] = field(default_factory=list)  # ANY match → score 0
     _req_compiled: list = field(default_factory=list, repr=False)
     _boost_compiled: list = field(default_factory=list, repr=False)
+    _neg_compiled: list = field(default_factory=list, repr=False)
 
     def compile(self):
         self._req_compiled = [re.compile(p, re.IGNORECASE) for p in self.required]
         self._boost_compiled = [re.compile(p, re.IGNORECASE) for p in self.boosts]
+        self._neg_compiled = [re.compile(p, re.IGNORECASE) for p in self.negatives]
 
     def score(self, text: str) -> int:
-        """Return 0 if any required signal is absent, else 1 + boost count."""
+        """Return 0 if any required signal is absent or any negative fires, else 1 + boost count."""
         if not all(p.search(text) for p in self._req_compiled):
+            return 0
+        if any(p.search(text) for p in self._neg_compiled):
             return 0
         return 1 + sum(1 for p in self._boost_compiled if p.search(text))
 
@@ -188,17 +193,19 @@ _INTENT_SPECS = [
         name='create_task',
         required=[r'\btask\b'],
         boosts=[r'\b(?:create|add|new|make|write|log)\b', r'\b(?:for|to)\b'],
+        # viewing-intent words indicate the user wants to SEE tasks, not create one
+        negatives=[r'\b(?:show|list|what|open|pending|get)\b'],
         handler_key='task_command',
         build_args=lambda t: _remainder_args(
             t, 'create', 'add', 'new', 'make', 'write', 'log', 'a', 'task', 'to', 'for',
         ),
     ),
 
-    # "show tasks", "list tasks", "open tasks", "tasks"
+    # "show tasks", "list tasks", "open tasks", "what's my task", "tasks"
     Intent(
         name='list_tasks',
-        required=[r'\btasks\b'],
-        boosts=[r'\b(?:show|list|open|all|current|what|get)\b'],
+        required=[r'\btasks?\b'],            # matches both "task" and "tasks"
+        boosts=[r'\b(?:show|list|open|all|current|what|get|my|pending)\b'],
         handler_key='tasks_command',
         build_args=lambda t: [],
     ),
@@ -219,6 +226,8 @@ _INTENT_SPECS = [
         name='my_week',
         required=[r'\bweek\b'],
         boosts=[r'\bmy\b', r'\bhours?\b', r'\bthis\b', r'\bhow\s+many\b'],
+        # action verbs mean the user is logging/submitting, not just checking the week
+        negatives=[r'\b(?:submit|send|log|add|record|clock(?:ed)?|work(?:ed)?)\b'],
         handler_key='myweek_command',
         build_args=lambda t: [],
     ),
@@ -232,6 +241,8 @@ _INTENT_SPECS = [
             r'\b(?:today|yesterday|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b',
             r'\bfor\b',
         ],
+        # submitting is a different action; avoid stealing "submit my hours this week"
+        negatives=[r'\b(?:submit|send)\b'],
         handler_key='hours_command',
         build_args=_hours_args,
     ),
@@ -258,13 +269,15 @@ _INTENT_SPECS = [
 
     # ── Check-ins / Escalations ────────────────────────────────────────────────
 
-    # "ask supervisor about X", "I have a question: X"
+    # "ask supervisor about X", "I have a question for my manager: X"
+    # Requires BOTH a question-word AND an explicit supervisor/manager mention to
+    # prevent "ask about the schedule" from falsely routing here.
     Intent(
         name='ask_supervisor',
-        required=[r'\b(?:ask|question)\b'],
-        boosts=[r'\b(?:supervisor|manager|about|regarding)\b'],
+        required=[r'\b(?:ask|question)\b', r'\b(?:supervisor|manager|boss)\b'],
+        boosts=[r'\b(?:about|regarding)\b'],
         handler_key='ask_command',
-        build_args=lambda t: _remainder_args(t, 'ask', 'supervisor', 'manager', 'about', 'question', 'for', 'a'),
+        build_args=lambda t: _remainder_args(t, 'ask', 'supervisor', 'manager', 'boss', 'about', 'question', 'for', 'a'),
     ),
 
     # "flag issue X", "I have a problem: X", "there's a blocker"
@@ -272,6 +285,8 @@ _INTENT_SPECS = [
         name='flag_issue',
         required=[r'\b(?:flag|problem|issue|blocker|blocked)\b'],
         boosts=[r'\b(?:raise|report|have|there)\b'],
+        # if a task number is referenced, done_task / cantdo_task are better matches
+        negatives=[r'\b(?:task[s]?\s+\d|\d+\s+task[s]?)\b'],
         handler_key='flag_command',
         build_args=lambda t: _remainder_args(t, 'flag', 'issue', 'problem', 'blocker', 'blocked', 'raise', 'report', 'a', 'have'),
     ),
@@ -411,6 +426,8 @@ _INTENT_SPECS = [
         name='full_report',
         required=[r'\breport\b'],
         boosts=[r'\b(?:full|executive|complete|overall|all)\b'],
+        # weekly/monthly reports are handled by their own more specific intents
+        negatives=[r'\b(?:weekly|monthly)\b'],
         handler_key='report_all_command',
         build_args=lambda t: [],
     ),
@@ -436,9 +453,14 @@ _INTENT_SPECS = [
     # ── Team / Users ──────────────────────────────────────────────────────────
 
     # "show all users", "list team members", "who's in the group", "groups"
+    # Requires BOTH a group-noun AND a viewing verb so "team meeting", "our people",
+    # "group call" etc. don't accidentally list users.
     Intent(
         name='list_users',
-        required=[r'\b(?:users?|team|group[s]?|members?|people|roster)\b'],
+        required=[
+            r'\b(?:users?|team|group[s]?|members?|people|roster)\b',
+            r'\b(?:show|list|all|who|everyone|get|registered)\b',
+        ],
         boosts=[r'\b(?:show|list|all|who|registered|everyone)\b'],
         handler_key='groups_command',
         build_args=lambda t: [],

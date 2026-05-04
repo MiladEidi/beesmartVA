@@ -72,7 +72,14 @@ def build_application() -> Application:
     application.add_handler(CallbackQueryHandler(draft_callback, pattern=r'^df:'))
     application.add_handler(CallbackQueryHandler(score_callback, pattern=r'^sc:'))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, flow_message_handler))
-    application.add_handler(MessageHandler(filters.VOICE, voice_message_handler))
+    # Handle voice in private chats AND groups/supergroups; exclude channels
+    # (channels have no real sender, so voice commands make no sense there).
+    # NOTE: in groups the bot must either be an admin or have privacy mode OFF
+    # so Telegram forwards non-command messages to it.
+    application.add_handler(MessageHandler(
+        filters.VOICE & ~filters.ChatType.CHANNEL,
+        voice_message_handler,
+    ))
     return application
 
 

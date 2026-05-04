@@ -4,6 +4,63 @@ All notable changes to BeeSmartVA are recorded here, newest first.
 
 ---
 
+## 2026-05-04 — Voice precision: false-detection prevention + group voice support
+
+### router.py — negatives concept + intent tightening
+
+A new `negatives` field was added to every `Intent`.  If **any** negative pattern
+matches, the intent is disqualified (score → 0) even if all required signals are
+present.  This eliminates the main categories of false routing:
+
+| Problem | Fix |
+|---|---|
+| `my_week` stole "submit my hours this week" | Added negative `submit\|send\|log\|add\|record\|clock\|work` to `my_week` |
+| `log_hours` competed with `submit_hours` | Added negative `submit\|send` to `log_hours` |
+| `create_task` caught "show tasks" / "what's my task" | Added negative `show\|list\|what\|open\|pending\|get` to `create_task` |
+| `ask_supervisor` fired on "ask about the schedule" | Required now: both `ask\|question` **AND** `supervisor\|manager\|boss` |
+| `full_report` matched "generate weekly report" | Added negative `weekly\|monthly` to `full_report` |
+| `list_users` fired on "team meeting", "our people" | Added second required: must also have a viewing verb (`show\|list\|all\|who\|everyone\|get\|registered`) |
+| `flag_issue` vs task-specific actions | Added negative for `task N` or `N task` patterns |
+
+**`list_tasks` broadened:** required changed from `\btasks\b` (plural only) to
+`\btasks?\b` so "what's my task" and "show task" are caught correctly.
+Boosts updated to include `my` and `pending`.
+
+### normalizer.py — 11 new phonetic corrections
+
+| Whisper mishear | Corrected to |
+|---|---|
+| overdo / over do / over-do | overdue |
+| monthle | monthly |
+| weekle | weekly |
+| linked in / linked-in | linkedin |
+| time sheet / time-sheet | timesheet |
+| time sheets / time-sheets | timesheets |
+| score check / score-check | scorecheck |
+| flaged | flagged |
+| connexion | connection |
+| in voice | invoice |
+
+### main.py — group voice support
+
+Voice messages are now processed in **private chats, groups, and supergroups**.
+Channels are explicitly excluded (no real sender → commands make no sense).
+
+```python
+# before
+MessageHandler(filters.VOICE, voice_message_handler)
+
+# after — explicit: groups yes, channels no
+MessageHandler(filters.VOICE & ~filters.ChatType.CHANNEL, voice_message_handler)
+```
+
+> **Note for group deployments:** the bot must be a group admin *or* have
+> Telegram's privacy mode disabled so it receives non-command messages.
+
+**Files changed:** `app/voice/normalizer.py`, `app/voice/router.py`, `app/main.py`
+
+---
+
 ## 2026-05-01 — Voice system overhaul: bug fixes + 7 new intents + smarter NLP
 
 ### Bug fixed
